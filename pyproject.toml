@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "simulate_data"
+version = "0.1.0"
+description = "A modular library for simulating genomic data for testing bioinformatic tools."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Nathan Mathieu", email = "nmath020@ucr.edu" },
+]
+dependencies = [
+    "pandas>=2.0",
+    "biopython>=1.83",
+    "pysam>=0.22",
+]
+
+[project.scripts]
+simulate-data = "simulate_data.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simulate_data"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.10,<3.13"
+pandas = ">=2.0"
+biopython = ">=1.83"
+pysam = ">=0.22"
+pytest = ">=8.0"
+ruff = ">=0.4"
+black = ">=24.0"
+
+[tool.pixi.pypi-dependencies]
+simulate_data = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test = { cmd = "pytest tests/ -v" }
+lint = { cmd = "ruff check src/ tests/" }
+format = { cmd = "black src/ tests/" }
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
