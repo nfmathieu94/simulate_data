@@ -40,10 +40,20 @@ cd simulate_data
 
 # Install the pixi environment (includes all dependencies)
 pixi install
+```
 
-# Verify installation
+Pixi installs the `simulate-data` console script into `.pixi/envs/default/bin/`, which is **not** on your PATH by default. You have two options:
+
+```bash
+# Option A: prefix every command with pixi run (recommended)
+pixi run simulate-data --help
+
+# Option B: activate the environment once, then use bare commands
+pixi shell
 simulate-data --help
 ```
+
+All examples below use the `pixi run` prefix. If you've activated the shell with `pixi shell`, you can drop the `pixi run` prefix.
 
 ## Available Subcommands
 
@@ -65,7 +75,7 @@ All examples assume you are in the repository root and have run `pixi install`.
 Insert 100 copies of the mPing transposon into chromosomes 1–5 of the MSU7 rice reference genome:
 
 ```bash
-simulate-data te-insertion \
+pixi run simulate-data te-insertion \
     --ref data/ref_genome/MSU_r7.fa \
     --te data/TE_lib/mping.fa \
     --num 100 \
@@ -81,7 +91,7 @@ simulate-data te-insertion \
 Place 50 structural variants (deletions, duplications, inversions, translocations) across the entire reference:
 
 ```bash
-simulate-data sv-placement \
+pixi run simulate-data sv-placement \
     --ref data/ref_genome/MSU_r7.fa \
     --num-sv 50 \
     --sv-types DEL,DUP,INV,TRA \
@@ -97,7 +107,7 @@ First insert TEs, then place SVs in the TE-modified genome:
 
 ```bash
 # Step 1: Insert 100 mPing TEs into Chr1–Chr5
-simulate-data te-insertion \
+pixi run simulate-data te-insertion \
     --ref data/ref_genome/MSU_r7.fa \
     --te data/TE_lib/mping.fa \
     --num 100 \
@@ -106,7 +116,7 @@ simulate-data te-insertion \
     --output results/te_insertion/
 
 # Step 2: Place 50 SVs in the TE-modified genome
-simulate-data sv-placement \
+pixi run simulate-data sv-placement \
     --ref results/te_insertion/modified_genome.fa \
     --num-sv 50 \
     --sv-types DEL,DUP,INV,TRA \
@@ -122,7 +132,7 @@ After creating a modified genome (via TE insertion, SV placement, or both), simu
 
 ```bash
 # Illumina paired-end reads (150 bp, 20x coverage)
-simulate-data reads-illumina \
+pixi run simulate-data reads-illumina \
     --ref results/sv_placement/modified_genome.fa \
     --read-length 150 \
     --coverage 20 \
@@ -130,14 +140,14 @@ simulate-data reads-illumina \
     --output results/reads_illumina/
 
 # Oxford Nanopore long reads (20x coverage)
-simulate-data reads-ont \
+pixi run simulate-data reads-ont \
     --ref results/sv_placement/modified_genome.fa \
     --coverage 20 \
     --seed 789 \
     --output results/reads_ont/
 
 # PacBio HiFi reads (20x coverage, 10 passes)
-simulate-data reads-pacbio \
+pixi run simulate-data reads-pacbio \
     --ref results/sv_placement/modified_genome.fa \
     --coverage 20 \
     --read-type HiFi \
