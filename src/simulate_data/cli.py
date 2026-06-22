@@ -29,8 +29,10 @@ def build_parser():
         mod = importlib.import_module(f"simulate_data.modules.{name}")
         if not hasattr(mod, "register_parser") or not hasattr(mod, "main"):
             continue
+        # Use hyphenated name as the subcommand (e.g., te_insertion -> te-insertion)
+        subcommand_name = name.replace("_", "-")
         sub = subparsers.add_parser(
-            name,
+            subcommand_name,
             help=mod.__doc__.strip().splitlines()[0] if mod.__doc__ else name,
             description=mod.__doc__,
         )

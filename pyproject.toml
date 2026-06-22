@@ -36,9 +36,11 @@ pysam = ">=0.22"
 pytest = ">=8.0"
 ruff = ">=0.4"
 black = ">=24.0"
+samtools = ">=1.21"
 
 [tool.pixi.pypi-dependencies]
 simulate_data = { path = ".", editable = true }
+tevarsim = "*"
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/ -v" }
