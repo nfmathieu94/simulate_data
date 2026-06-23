@@ -11,6 +11,7 @@ from simulate_data.modules import te_insertion
 DATA_DIR = Path(__file__).parent / "data"
 MINI_GENOME = DATA_DIR / "mini_genome.fa"
 MINI_TE = DATA_DIR / "mini_te.fa"
+MINI_KNOWN_DEL = DATA_DIR / "mini_known_del.out"
 
 
 class TestRegisterParser:
@@ -26,6 +27,8 @@ class TestRegisterParser:
                 "ref.fa",
                 "--te",
                 "te.fa",
+                "--known-del",
+                "del.out",
                 "--num",
                 "100",
                 "--output",
@@ -34,11 +37,14 @@ class TestRegisterParser:
         )
         assert args.ref == "ref.fa"
         assert args.te == "te.fa"
+        assert args.known_del == "del.out"
         assert args.num == 100
         assert args.output == "results/"
         assert args.seed is None
         assert args.bed is None
         assert args.chroms == "all"
+        assert args.num_genomes == 1
+        assert args.ins_ratio == 0.6
 
     def test_register_parser_with_all_options(self):
         parser = argparse.ArgumentParser()
@@ -50,6 +56,8 @@ class TestRegisterParser:
                 "ref.fa",
                 "--te",
                 "te.fa",
+                "--known-del",
+                "del.out",
                 "--num",
                 "50",
                 "--output",
@@ -60,11 +68,17 @@ class TestRegisterParser:
                 "positions.bed",
                 "--chroms",
                 "Chr1,Chr2",
+                "--num-genomes",
+                "3",
+                "--ins-ratio",
+                "0.8",
             ]
         )
         assert args.seed == 42
         assert args.bed == "positions.bed"
         assert args.chroms == "Chr1,Chr2"
+        assert args.num_genomes == 3
+        assert args.ins_ratio == 0.8
 
     def test_register_parser_missing_required(self):
         parser = argparse.ArgumentParser()
@@ -77,20 +91,100 @@ class TestRegisterParser:
 class TestMain:
     """Tests for main function."""
 
+    @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_all_chroms(self, mock_run, mock_check):
+    def test_main_all_chroms(self, mock_run, mock_check, mock_extract):
         """Test main with all chromosomes selected."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
             num=10,
             output="results/te_test/",
             seed=42,
             bed=None,
             chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
+        )
+
+        te_insertion.main(ns)
+
+        assert mock_run.call_count >= 2
+        all_cmds = [call.args[0] for call in mock_run.call_args_list]
+        terandom_cmds = [c for c in all_cmds if "TErandom" in c]
+        simulate_cmds = [c for c in all_cmds if "Simulate" in c]
+        assert len(terandom_cmds) >= 1
+        assert len(simulate_cmds) >= 1
+
+    @patch("simulate_data.modules.te_insertion.extract_chromosomes")
+    @patch("simulate_data.modules.te_insertion.check_tool_installed")
+    @patch("simulate_data.modules.te_insertion.run_command")
+    def test_main_specific_chroms(self, mock_run, mock_check, mock_extract):
+        """Test main with specific chromosomes selected."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=5,
+            output="results/te_test/",
+            seed=None,
+            bed=None,
+            chroms="Chr1,Chr3",
+            num_genomes=1,
+            ins_ratio=0.6,
+        )
+
+        te_insertion.main(ns)
+
+        assert mock_run.call_count == 4
+
+    @patch("simulate_data.modules.te_insertion.extract_chromosomes")
+    @patch("simulate_data.modules.te_insertion.check_tool_installed")
+    @patch("simulate_data.modules.te_insertion.run_command")
+    def test_main_range_chroms(self, mock_run, mock_check, mock_extract):
+        """Test main with chromosome range Chr2-5."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=20,
+            output="results/te_test/",
+            seed=None,
+            bed=None,
+            chroms="Chr2-5",
+            num_genomes=1,
+            ins_ratio=0.6,
+        )
+
+        te_insertion.main(ns)
+
+        assert mock_run.call_count == 8
+
+    @patch("simulate_data.modules.te_insertion.check_tool_installed")
+    @patch("simulate_data.modules.te_insertion.run_command")
+    def test_main_with_bed_file(self, mock_run, mock_check, tmp_path):
+        """Test main with pre-generated BED file (skips TErandom)."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=10,
+            output=str(tmp_path / "te_output"),
+            seed=None,
+            bed=str(DATA_DIR / "mini_te.bed"),
+            chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
         )
 
         te_insertion.main(ns)
@@ -99,71 +193,6 @@ class TestMain:
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "tevarsim"
         assert "Simulate" in cmd
-        assert "--ref" in cmd
-        assert "--seed" in cmd
-
-    @patch("simulate_data.modules.te_insertion.check_tool_installed")
-    @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_specific_chroms(self, mock_run, mock_check, tmp_path):
-        """Test main with specific chromosomes selected."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        ns = argparse.Namespace(
-            ref=str(MINI_GENOME),
-            te=str(MINI_TE),
-            num=5,
-            output=str(tmp_path / "te_output"),
-            seed=None,
-            bed=None,
-            chroms="Chr1,Chr3",
-        )
-
-        te_insertion.main(ns)
-
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "tevarsim"
-
-    @patch("simulate_data.modules.te_insertion.check_tool_installed")
-    @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_range_chroms(self, mock_run, mock_check, tmp_path):
-        """Test main with chromosome range Chr2-5."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        ns = argparse.Namespace(
-            ref=str(MINI_GENOME),
-            te=str(MINI_TE),
-            num=20,
-            output=str(tmp_path / "te_output"),
-            seed=None,
-            bed=None,
-            chroms="Chr2-5",
-        )
-
-        te_insertion.main(ns)
-
-        mock_run.assert_called_once()
-
-    @patch("simulate_data.modules.te_insertion.check_tool_installed")
-    @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_with_bed_file(self, mock_run, mock_check, tmp_path):
-        """Test main with pre-generated BED file."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        ns = argparse.Namespace(
-            ref=str(MINI_GENOME),
-            te=str(MINI_TE),
-            num=10,
-            output=str(tmp_path / "te_output"),
-            seed=None,
-            bed=str(DATA_DIR / "mini_te.bed"),
-            chroms="all",
-        )
-
-        te_insertion.main(ns)
-
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
         assert "--bed" in cmd
 
     def test_main_invalid_num(self):
@@ -171,11 +200,14 @@ class TestMain:
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
             num=0,
             output="results/",
             seed=None,
             bed=None,
             chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
         )
         with pytest.raises(ValueError, match="must be positive"):
             te_insertion.main(ns)
@@ -185,11 +217,14 @@ class TestMain:
         ns = argparse.Namespace(
             ref="/nonexistent/ref.fa",
             te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
             num=10,
             output="results/",
             seed=None,
             bed=None,
             chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
         )
         with pytest.raises(FileNotFoundError):
             te_insertion.main(ns)
@@ -199,32 +234,101 @@ class TestMain:
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
             num=10,
             output="results/",
             seed=None,
             bed=None,
             chroms="Chr99,Chr100",
+            num_genomes=1,
+            ins_ratio=0.6,
         )
         with pytest.raises(ValueError, match="not found"):
             te_insertion.main(ns)
 
+    @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_no_seed(self, mock_run, mock_check, tmp_path):
+    def test_main_no_seed(self, mock_run, mock_check, mock_extract):
         """Test that seed is not passed when None."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
             num=10,
-            output=str(tmp_path / "te_output"),
+            output="results/te_test/",
             seed=None,
             bed=None,
             chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
         )
 
         te_insertion.main(ns)
 
-        cmd = mock_run.call_args[0][0]
+        all_cmds = [call.args[0] for call in mock_run.call_args_list]
+        for cmd in all_cmds:
+            assert "--seed" not in cmd
+
+
+class TestBuildCommands:
+    """Tests for command builder helpers."""
+
+    def test_build_terandom_command_basic(self):
+        cmd = te_insertion._build_terandom_command(
+            te_fasta=Path("te.fa"),
+            known_del=Path("del.out"),
+            chrom="Chr1",
+            num_te=100,
+            outprefix="/tmp/terandom",
+        )
+        assert cmd[0] == "tevarsim"
+        assert "TErandom" in cmd
+        assert "--consensus" in cmd
+        assert "--knownDEL" in cmd
+        assert "--CHR" in cmd
+        assert "--nTE" in cmd
+        assert "--outprefix" in cmd
+        assert "--ins-ratio" in cmd
         assert "--seed" not in cmd
+
+    def test_build_terandom_command_with_seed(self):
+        cmd = te_insertion._build_terandom_command(
+            te_fasta=Path("te.fa"),
+            known_del=Path("del.out"),
+            chrom="Chr1",
+            num_te=100,
+            outprefix="/tmp/terandom",
+            seed=42,
+        )
+        assert "--seed" in cmd
+
+    def test_build_simulate_command_basic(self):
+        cmd = te_insertion._build_simulate_command(
+            ref_fasta=Path("ref.fa"),
+            te_pool=Path("pool.fa"),
+            bed_file=Path("pos.bed"),
+            num_genomes=1,
+            outprefix="/tmp/Sim",
+        )
+        assert cmd[0] == "tevarsim"
+        assert "Simulate" in cmd
+        assert "--ref" in cmd
+        assert "--pool" in cmd
+        assert "--bed" in cmd
+        assert "--num" in cmd
+        assert "--outprefix" in cmd
+        assert "--seed" not in cmd
+
+    def test_build_simulate_command_with_seed(self):
+        cmd = te_insertion._build_simulate_command(
+            ref_fasta=Path("ref.fa"),
+            te_pool=Path("pool.fa"),
+            bed_file=Path("pos.bed"),
+            num_genomes=1,
+            outprefix="/tmp/Sim",
+            seed=42,
+        )
+        assert "--seed" in cmd
