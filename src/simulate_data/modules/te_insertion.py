@@ -44,7 +44,10 @@ def register_parser(parser):
     parser.add_argument(
         "--known-del",
         required=True,
-        help="Known TE deletion file (RepeatMasker .out or UCSC .txt)",
+        help=(
+            "Known TE deletion file. Supports TEvarSim-compatible "
+            "RepeatMasker .out/UCSC .txt, or RepeatMasker GFF3."
+        ),
     )
     parser.add_argument(
         "--num",
@@ -90,6 +93,113 @@ def register_parser(parser):
             "Proportion of insertion events among all simulated pTE (0-1, default: 0.6)"
         ),
     )
+    parser.add_argument(
+        "--te-type",
+        action="append",
+        default=None,
+        help=(
+            "TE family/superfamily to extract from the known deletion file. "
+            "Can be repeated or comma-separated. Example: --te-type Harbinger"
+        ),
+    )
+
+
+def _split_te_types(te_types: list[str] | None) -> list[str]:
+    """Normalize repeated or comma-separated --te-type values."""
+    if not te_types:
+        return []
+
+    result: list[str] = []
+    for value in te_types:
+        for item in value.split(","):
+            item = item.strip()
+            if item:
+                result.append(item)
+    return result
+
+
+def _parse_gff_attributes(attributes: str) -> dict[str, str]:
+    """Parse a simple GFF3 attributes field."""
+    parsed: dict[str, str] = {}
+    for item in attributes.rstrip(";").split(";"):
+        if not item or "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        parsed[key] = value
+    return parsed
+
+
+def _repeatmasker_gff_to_out(gff_path: Path, output_path: Path) -> Path:
+    """Convert RepeatMasker GFF3 to the .out-like columns TEvarSim reads."""
+    converted = 0
+
+    with open(gff_path, "r") as fin, open(output_path, "w") as fout:
+        for line in fin:
+            if line.startswith("#") or not line.strip():
+                continue
+
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 9:
+                continue
+
+            chrom, _source, _feature, start, end, score, strand, _phase, attrs = fields
+            attr = _parse_gff_attributes(attrs)
+            repeat_class = attr.get("Class")
+            target = attr.get("Target")
+
+            if not repeat_class or "/" not in repeat_class or not target:
+                continue
+
+            repeat_name = target.split()[0]
+            rm_strand = "C" if strand == "-" else "+"
+            repeat_end = max(int(end) - int(start) + 1, 1)
+
+            fout.write(
+                " ".join(
+                    [
+                        score if score != "." else "0",
+                        attr.get("PercDiv", "0"),
+                        attr.get("PercDel", "0"),
+                        attr.get("PercIns", "0"),
+                        chrom,
+                        start,
+                        end,
+                        "(0)",
+                        rm_strand,
+                        repeat_name,
+                        repeat_class,
+                        "1",
+                        str(repeat_end),
+                        "(0)",
+                        attr.get("ID", str(converted + 1)),
+                    ]
+                )
+                + "\n"
+            )
+            converted += 1
+
+    if converted == 0:
+        raise ValueError(f"No RepeatMasker records could be converted from {gff_path}")
+
+    logger.info(
+        "Converted %d RepeatMasker GFF records to TEvarSim .out format: %s",
+        converted,
+        output_path,
+    )
+    return output_path
+
+
+def _prepare_known_del_file(known_del: Path, tmpdir: Path) -> Path:
+    """Return a TEvarSim-compatible known deletion file."""
+    if known_del.suffix.lower() in {".out", ".txt"}:
+        return known_del
+    if known_del.suffix.lower() in {".gff", ".gff3"}:
+        return _repeatmasker_gff_to_out(known_del, tmpdir / f"{known_del.stem}.out")
+
+    raise ValueError(
+        "Known deletion file must end with .out, .txt, .gff, or .gff3; "
+        f"got {known_del}"
+    )
 
 
 def _build_terandom_command(
@@ -100,6 +210,7 @@ def _build_terandom_command(
     outprefix: str,
     seed: int | None = None,
     ins_ratio: float = 0.6,
+    te_types: list[str] | None = None,
 ) -> list[str]:
     """Build the TEvarSim TErandom command.
 
@@ -125,6 +236,8 @@ def _build_terandom_command(
     ]
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
+    for te_type in te_types or []:
+        cmd.extend(["--TEtype", te_type])
     return cmd
 
 
@@ -186,10 +299,10 @@ def main(args):
     if args.bed:
         validate_file_exists(Path(args.bed))
 
-    check_tool_installed("tevarsim")
-
     available_chroms = get_chromosomes_from_fasta(ref_path)
     target_chroms = parse_chromosome_spec(args.chroms, available_chroms)
+
+    check_tool_installed("tevarsim")
 
     logger.info(
         "Inserting %d TEs into chromosomes: %s",
@@ -201,6 +314,8 @@ def main(args):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
+        known_del_for_tool = _prepare_known_del_file(known_del_path, tmpdir_path)
+        te_types = _split_te_types(getattr(args, "te_type", None))
 
         if args.bed:
             cmd = _build_simulate_command(
@@ -213,6 +328,13 @@ def main(args):
             )
             run_command(cmd)
         else:
+            if args.num_genomes != 1:
+                raise ValueError(
+                    "--num-genomes > 1 is only supported without chromosome "
+                    "subsetting in the current TE wrapper"
+                )
+
+            modified_subset_fasta = tmpdir_path / "modified_chromosomes.fa"
             for chrom in target_chroms:
                 logger.info("Processing chromosome %s", chrom)
 
@@ -222,12 +344,13 @@ def main(args):
                 terandom_prefix = str(tmpdir_path / f"terandom_{chrom}")
                 terandom_cmd = _build_terandom_command(
                     te_fasta=te_path,
-                    known_del=known_del_path,
+                    known_del=known_del_for_tool,
                     chrom=chrom,
                     num_te=args.num,
                     outprefix=terandom_prefix,
                     seed=args.seed,
                     ins_ratio=args.ins_ratio,
+                    te_types=te_types,
                 )
                 run_command(terandom_cmd)
 
@@ -244,19 +367,55 @@ def main(args):
                 )
                 run_command(simulate_cmd)
 
-            modified_genome = output_dir / "modified_genome.fa"
+                sim_fasta = Path(f"{sim_prefix}.fa")
+                if not sim_fasta.exists():
+                    raise FileNotFoundError(
+                        f"Expected TEvarSim output FASTA was not created: {sim_fasta}"
+                    )
+                _append_renamed_first_fasta_record(
+                    input_fasta=sim_fasta,
+                    output_fasta=modified_subset_fasta,
+                    record_name=chrom,
+                )
+
             merged_output = output_dir / "final_genome.fa"
 
-            if modified_genome.exists():
-                merge_fasta(
-                    base_fasta=ref_path,
-                    modified_fasta=modified_genome,
-                    output_path=merged_output,
-                    modified_chroms=set(target_chroms),
-                )
-                logger.info(
-                    "Merged modified chromosomes with reference. Final genome: %s",
-                    merged_output,
-                )
+            merge_fasta(
+                base_fasta=ref_path,
+                modified_fasta=modified_subset_fasta,
+                output_path=merged_output,
+                modified_chroms=set(target_chroms),
+            )
+            logger.info(
+                "Merged modified chromosomes with reference. Final genome: %s",
+                merged_output,
+            )
 
     logger.info("TE insertion complete. Output: %s", output_dir)
+
+
+def _append_renamed_first_fasta_record(
+    input_fasta: Path,
+    output_fasta: Path,
+    record_name: str,
+) -> None:
+    """Append the first FASTA record from input_fasta using record_name."""
+    sequence_lines: list[str] = []
+    seen_header = False
+
+    with open(input_fasta, "r") as fin:
+        for line in fin:
+            if line.startswith(">"):
+                if seen_header:
+                    break
+                seen_header = True
+                continue
+            if seen_header:
+                sequence_lines.append(line)
+
+    if not seen_header or not sequence_lines:
+        raise ValueError(f"No FASTA record found in TEvarSim output: {input_fasta}")
+
+    with open(output_fasta, "a") as fout:
+        fout.write(f">{record_name}\n")
+        fout.writelines(sequence_lines)

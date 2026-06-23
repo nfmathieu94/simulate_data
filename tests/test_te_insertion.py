@@ -14,6 +14,16 @@ MINI_TE = DATA_DIR / "mini_te.fa"
 MINI_KNOWN_DEL = DATA_DIR / "mini_known_del.out"
 
 
+def _mock_tevarsim_output(cmd):
+    """Create the FASTA output expected from mocked TEvarSim Simulate."""
+    if "Simulate" in cmd:
+        outprefix = Path(cmd[cmd.index("--outprefix") + 1])
+        chrom = outprefix.name.removeprefix("Sim_")
+        outprefix.parent.mkdir(parents=True, exist_ok=True)
+        outprefix.with_suffix(".fa").write_text(f">{chrom}_0\nNNNN\n")
+    return MagicMock(returncode=0, stdout="", stderr="")
+
+
 class TestRegisterParser:
     """Tests for register_parser."""
 
@@ -45,6 +55,7 @@ class TestRegisterParser:
         assert args.chroms == "all"
         assert args.num_genomes == 1
         assert args.ins_ratio == 0.6
+        assert args.te_type is None
 
     def test_register_parser_with_all_options(self):
         parser = argparse.ArgumentParser()
@@ -72,6 +83,10 @@ class TestRegisterParser:
                 "3",
                 "--ins-ratio",
                 "0.8",
+                "--te-type",
+                "Harbinger",
+                "--te-type",
+                "Tourist,MuDR",
             ]
         )
         assert args.seed == 42
@@ -79,6 +94,7 @@ class TestRegisterParser:
         assert args.chroms == "Chr1,Chr2"
         assert args.num_genomes == 3
         assert args.ins_ratio == 0.8
+        assert args.te_type == ["Harbinger", "Tourist,MuDR"]
 
     def test_register_parser_missing_required(self):
         parser = argparse.ArgumentParser()
@@ -96,7 +112,7 @@ class TestMain:
     @patch("simulate_data.modules.te_insertion.run_command")
     def test_main_all_chroms(self, mock_run, mock_check, mock_extract):
         """Test main with all chromosomes selected."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_tevarsim_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -125,7 +141,7 @@ class TestMain:
     @patch("simulate_data.modules.te_insertion.run_command")
     def test_main_specific_chroms(self, mock_run, mock_check, mock_extract):
         """Test main with specific chromosomes selected."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_tevarsim_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -138,18 +154,22 @@ class TestMain:
             chroms="Chr1,Chr3",
             num_genomes=1,
             ins_ratio=0.6,
+            te_type=["Harbinger"],
         )
 
         te_insertion.main(ns)
 
         assert mock_run.call_count == 4
+        all_cmds = [call.args[0] for call in mock_run.call_args_list]
+        terandom_cmds = [c for c in all_cmds if "TErandom" in c]
+        assert all("--TEtype" in c and "Harbinger" in c for c in terandom_cmds)
 
     @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
     def test_main_range_chroms(self, mock_run, mock_check, mock_extract):
         """Test main with chromosome range Chr2-5."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_tevarsim_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -251,7 +271,7 @@ class TestMain:
     @patch("simulate_data.modules.te_insertion.run_command")
     def test_main_no_seed(self, mock_run, mock_check, mock_extract):
         """Test that seed is not passed when None."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_tevarsim_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -271,6 +291,24 @@ class TestMain:
         all_cmds = [call.args[0] for call in mock_run.call_args_list]
         for cmd in all_cmds:
             assert "--seed" not in cmd
+
+    def test_main_num_genomes_requires_single_genome_for_chrom_subset(self):
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=10,
+            output="results/",
+            seed=None,
+            bed=None,
+            chroms="Chr1,Chr2",
+            num_genomes=2,
+            ins_ratio=0.6,
+            te_type=None,
+        )
+        with patch("simulate_data.modules.te_insertion.check_tool_installed"):
+            with pytest.raises(ValueError, match="num-genomes"):
+                te_insertion.main(ns)
 
 
 class TestBuildCommands:
@@ -305,6 +343,19 @@ class TestBuildCommands:
         )
         assert "--seed" in cmd
 
+    def test_build_terandom_command_with_te_types(self):
+        cmd = te_insertion._build_terandom_command(
+            te_fasta=Path("te.fa"),
+            known_del=Path("del.out"),
+            chrom="Chr1",
+            num_te=100,
+            outprefix="/tmp/terandom",
+            te_types=["Harbinger", "Tourist"],
+        )
+        assert cmd.count("--TEtype") == 2
+        assert "Harbinger" in cmd
+        assert "Tourist" in cmd
+
     def test_build_simulate_command_basic(self):
         cmd = te_insertion._build_simulate_command(
             ref_fasta=Path("ref.fa"),
@@ -332,3 +383,33 @@ class TestBuildCommands:
             seed=42,
         )
         assert "--seed" in cmd
+
+
+class TestRepeatMaskerGffConversion:
+    """Tests for RepeatMasker GFF3 compatibility helpers."""
+
+    def test_repeatmasker_gff_to_out(self, tmp_path):
+        gff = tmp_path / "rm.gff"
+        gff.write_text(
+            "##gff-version 3\n"
+            "Chr1\tRepeatMasker\tTransposon\t100\t530\t4057\t+\t.\t"
+            "ID=TE1;Target=MPING 1 430;Class=DNA/Harbinger;"
+            "PercDiv=0.0;PercDel=0.0;PercIns=0.0;\n"
+        )
+        out = tmp_path / "rm.out"
+
+        te_insertion._repeatmasker_gff_to_out(gff, out)
+
+        fields = out.read_text().split()
+        assert fields[4] == "Chr1"
+        assert fields[5] == "100"
+        assert fields[6] == "530"
+        assert fields[9] == "MPING"
+        assert fields[10] == "DNA/Harbinger"
+
+    def test_split_te_types(self):
+        assert te_insertion._split_te_types(["Harbinger,Tourist", "MuDR"]) == [
+            "Harbinger",
+            "Tourist",
+            "MuDR",
+        ]
