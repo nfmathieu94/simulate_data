@@ -78,8 +78,12 @@ Insert 100 copies of the mPing transposon into chromosomes 1–5 of the MSU7 ric
 pixi run simulate-data te-insertion \
     --ref data/ref_genome/MSU_r7.fa \
     --te data/TE_lib/mping.fa \
+    --known-del data/ref_genome/MSU_r7.fa.RepeatMasker.out \
     --num 100 \
     --chroms Chr1-5 \
+    --snp-rate 0.01 \
+    --indel-rate 0.002 \
+    --sense-strand-ratio 0.7 \
     --seed 42 \
     --output results/te_insertion/
 ```
@@ -110,6 +114,7 @@ First insert TEs, then place SVs in the TE-modified genome:
 pixi run simulate-data te-insertion \
     --ref data/ref_genome/MSU_r7.fa \
     --te data/TE_lib/mping.fa \
+    --known-del data/ref_genome/MSU_r7.fa.RepeatMasker.out \
     --num 100 \
     --chroms Chr1-5 \
     --seed 42 \
@@ -177,11 +182,25 @@ Insert transposable elements (TEs) from a consensus FASTA into specified chromos
 |---|---|---|---|
 | `--ref` | path | **required** | Reference genome FASTA |
 | `--te` | path | **required** | TE consensus FASTA (TE pool) |
-| `--num` | int | **required** | Number of TE insertions to simulate |
+| `--known-del` | path | **required** | Known TE deletion annotation: TEvarSim-compatible RepeatMasker `.out`/UCSC `.txt`, or RepeatMasker GFF/GFF3 |
+| `--num` | int | **required** | Number of TE events to simulate per selected chromosome |
 | `--output` | path | **required** | Output directory for modified genome and VCF |
 | `--chroms` | string | `all` | Chromosomes to insert TEs into (see [Chromosome Selection](#chromosome-selection)) |
 | `--seed` | int | None | Random seed for reproducibility |
 | `--bed` | path | None | BED file of pre-generated TE positions |
+| `--num-genomes` | int | 1 | Number of genomes/haplotypes for TEvarSim `Simulate` |
+| `--ins-ratio` | float | 0.6 | Proportion of TE events that are insertions |
+| `--te-type` | string | None | TE family/superfamily filter; can be repeated or comma-separated |
+| `--snp-rate` | float | 0.02 | SNP mutation rate per base when generating inserted TE copies |
+| `--indel-rate` | float | 0.005 | Indel mutation rate per base when generating inserted TE copies |
+| `--indel-ins` | float | 0.4 | Proportion of TE-copy indels that are insertions |
+| `--indel-geom-p` | float | 0.7 | Geometric distribution parameter for TE-copy indel lengths |
+| `--truncated-ratio` | float | 0.3 | Proportion of inserted TE copies to truncate |
+| `--truncated-max-length` | float | 0.5 | Maximum proportion of each inserted TE copy that can be truncated |
+| `--polyA-ratio` | float | 0.8 | Proportion of inserted TE copies to add a polyA tail |
+| `--polyA-min` | int | 5 | Minimum polyA tail length |
+| `--polyA-max` | int | 20 | Maximum polyA tail length |
+| `--sense-strand-ratio` | float | 0.5 | Proportion of TE insertions simulated on the sense strand |
 
 ### sv-placement
 

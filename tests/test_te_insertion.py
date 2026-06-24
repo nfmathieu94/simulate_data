@@ -56,6 +56,16 @@ class TestRegisterParser:
         assert args.num_genomes == 1
         assert args.ins_ratio == 0.6
         assert args.te_type is None
+        assert args.snp_rate == 0.02
+        assert args.indel_rate == 0.005
+        assert args.indel_ins == 0.4
+        assert args.indel_geom_p == 0.7
+        assert args.truncated_ratio == 0.3
+        assert args.truncated_max_length == 0.5
+        assert args.polyA_ratio == 0.8
+        assert args.polyA_min == 5
+        assert args.polyA_max == 20
+        assert args.sense_strand_ratio == 0.5
 
     def test_register_parser_with_all_options(self):
         parser = argparse.ArgumentParser()
@@ -87,6 +97,26 @@ class TestRegisterParser:
                 "Harbinger",
                 "--te-type",
                 "Tourist,MuDR",
+                "--snp-rate",
+                "0.01",
+                "--indel-rate",
+                "0.002",
+                "--indel-ins",
+                "0.25",
+                "--indel-geom-p",
+                "0.8",
+                "--truncated-ratio",
+                "0.15",
+                "--truncated-max-length",
+                "0.4",
+                "--polyA-ratio",
+                "0.2",
+                "--polyA-min",
+                "3",
+                "--polyA-max",
+                "12",
+                "--sense-strand-ratio",
+                "0.7",
             ]
         )
         assert args.seed == 42
@@ -95,6 +125,16 @@ class TestRegisterParser:
         assert args.num_genomes == 3
         assert args.ins_ratio == 0.8
         assert args.te_type == ["Harbinger", "Tourist,MuDR"]
+        assert args.snp_rate == 0.01
+        assert args.indel_rate == 0.002
+        assert args.indel_ins == 0.25
+        assert args.indel_geom_p == 0.8
+        assert args.truncated_ratio == 0.15
+        assert args.truncated_max_length == 0.4
+        assert args.polyA_ratio == 0.2
+        assert args.polyA_min == 3
+        assert args.polyA_max == 12
+        assert args.sense_strand_ratio == 0.7
 
     def test_register_parser_missing_required(self):
         parser = argparse.ArgumentParser()
@@ -232,6 +272,24 @@ class TestMain:
         with pytest.raises(ValueError, match="must be positive"):
             te_insertion.main(ns)
 
+    def test_main_invalid_divergence_rate(self):
+        """Test that rate-style TEvarSim options are constrained to 0-1."""
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=10,
+            output="results/",
+            seed=None,
+            bed=None,
+            chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
+            snp_rate=1.5,
+        )
+        with pytest.raises(ValueError, match="snp-rate"):
+            te_insertion.main(ns)
+
     def test_main_missing_ref(self):
         """Test that missing reference file raises FileNotFoundError."""
         ns = argparse.Namespace(
@@ -330,6 +388,10 @@ class TestBuildCommands:
         assert "--nTE" in cmd
         assert "--outprefix" in cmd
         assert "--ins-ratio" in cmd
+        assert "--snp-rate" in cmd
+        assert "--indel-rate" in cmd
+        assert "--truncated-ratio" in cmd
+        assert "--polyA-ratio" in cmd
         assert "--seed" not in cmd
 
     def test_build_terandom_command_with_seed(self):
@@ -356,6 +418,33 @@ class TestBuildCommands:
         assert "Harbinger" in cmd
         assert "Tourist" in cmd
 
+    def test_build_terandom_command_with_divergence_options(self):
+        cmd = te_insertion._build_terandom_command(
+            te_fasta=Path("te.fa"),
+            known_del=Path("del.out"),
+            chrom="Chr1",
+            num_te=100,
+            outprefix="/tmp/terandom",
+            snp_rate=0.01,
+            indel_rate=0.002,
+            indel_ins=0.25,
+            indel_geom_p=0.8,
+            truncated_ratio=0.15,
+            truncated_max_length=0.4,
+            polya_ratio=0.2,
+            polya_min=3,
+            polya_max=12,
+        )
+        assert cmd[cmd.index("--snp-rate") + 1] == "0.01"
+        assert cmd[cmd.index("--indel-rate") + 1] == "0.002"
+        assert cmd[cmd.index("--indel-ins") + 1] == "0.25"
+        assert cmd[cmd.index("--indel-geom-p") + 1] == "0.8"
+        assert cmd[cmd.index("--truncated-ratio") + 1] == "0.15"
+        assert cmd[cmd.index("--truncated-max-length") + 1] == "0.4"
+        assert cmd[cmd.index("--polyA-ratio") + 1] == "0.2"
+        assert cmd[cmd.index("--polyA-min") + 1] == "3"
+        assert cmd[cmd.index("--polyA-max") + 1] == "12"
+
     def test_build_simulate_command_basic(self):
         cmd = te_insertion._build_simulate_command(
             ref_fasta=Path("ref.fa"),
@@ -371,6 +460,7 @@ class TestBuildCommands:
         assert "--bed" in cmd
         assert "--num" in cmd
         assert "--outprefix" in cmd
+        assert "--sense-strand-ratio" in cmd
         assert "--seed" not in cmd
 
     def test_build_simulate_command_with_seed(self):
@@ -383,6 +473,17 @@ class TestBuildCommands:
             seed=42,
         )
         assert "--seed" in cmd
+
+    def test_build_simulate_command_with_sense_strand_ratio(self):
+        cmd = te_insertion._build_simulate_command(
+            ref_fasta=Path("ref.fa"),
+            te_pool=Path("pool.fa"),
+            bed_file=Path("pos.bed"),
+            num_genomes=1,
+            outprefix="/tmp/Sim",
+            sense_strand_ratio=0.75,
+        )
+        assert cmd[cmd.index("--sense-strand-ratio") + 1] == "0.75"
 
 
 class TestRepeatMaskerGffConversion:

@@ -102,6 +102,72 @@ def register_parser(parser):
             "Can be repeated or comma-separated. Example: --te-type Harbinger"
         ),
     )
+    parser.add_argument(
+        "--snp-rate",
+        type=float,
+        default=0.02,
+        help="SNP mutation rate per base for inserted TE copies (default: 0.02)",
+    )
+    parser.add_argument(
+        "--indel-rate",
+        type=float,
+        default=0.005,
+        help="Indel mutation rate per base for inserted TE copies (default: 0.005)",
+    )
+    parser.add_argument(
+        "--indel-ins",
+        type=float,
+        default=0.4,
+        help="Proportion of TE-copy indels that are insertions (0-1, default: 0.4)",
+    )
+    parser.add_argument(
+        "--indel-geom-p",
+        type=float,
+        default=0.7,
+        help="Geometric distribution p for TE-copy indel lengths (default: 0.7)",
+    )
+    parser.add_argument(
+        "--truncated-ratio",
+        type=float,
+        default=0.3,
+        help="Proportion of inserted TE copies to truncate (0-1, default: 0.3)",
+    )
+    parser.add_argument(
+        "--truncated-max-length",
+        type=float,
+        default=0.5,
+        help=(
+            "Maximum proportion of each TE copy that can be truncated "
+            "(0-1, default: 0.5)"
+        ),
+    )
+    parser.add_argument(
+        "--polyA-ratio",
+        type=float,
+        default=0.8,
+        help="Proportion of inserted TE copies to add a polyA tail (0-1, default: 0.8)",
+    )
+    parser.add_argument(
+        "--polyA-min",
+        type=int,
+        default=5,
+        help="Minimum polyA tail length for inserted TE copies (default: 5)",
+    )
+    parser.add_argument(
+        "--polyA-max",
+        type=int,
+        default=20,
+        help="Maximum polyA tail length for inserted TE copies (default: 20)",
+    )
+    parser.add_argument(
+        "--sense-strand-ratio",
+        type=float,
+        default=0.5,
+        help=(
+            "Proportion of TE insertions simulated on the sense strand "
+            "(0-1, default: 0.5)"
+        ),
+    )
 
 
 def _split_te_types(te_types: list[str] | None) -> list[str]:
@@ -211,6 +277,15 @@ def _build_terandom_command(
     seed: int | None = None,
     ins_ratio: float = 0.6,
     te_types: list[str] | None = None,
+    snp_rate: float = 0.02,
+    indel_rate: float = 0.005,
+    indel_ins: float = 0.4,
+    indel_geom_p: float = 0.7,
+    truncated_ratio: float = 0.3,
+    truncated_max_length: float = 0.5,
+    polya_ratio: float = 0.8,
+    polya_min: int = 5,
+    polya_max: int = 20,
 ) -> list[str]:
     """Build the TEvarSim TErandom command.
 
@@ -233,6 +308,24 @@ def _build_terandom_command(
         outprefix,
         "--ins-ratio",
         str(ins_ratio),
+        "--snp-rate",
+        str(snp_rate),
+        "--indel-rate",
+        str(indel_rate),
+        "--indel-ins",
+        str(indel_ins),
+        "--indel-geom-p",
+        str(indel_geom_p),
+        "--truncated-ratio",
+        str(truncated_ratio),
+        "--truncated-max-length",
+        str(truncated_max_length),
+        "--polyA-ratio",
+        str(polya_ratio),
+        "--polyA-min",
+        str(polya_min),
+        "--polyA-max",
+        str(polya_max),
     ]
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
@@ -248,6 +341,7 @@ def _build_simulate_command(
     num_genomes: int,
     outprefix: str,
     seed: int | None = None,
+    sense_strand_ratio: float = 0.5,
 ) -> list[str]:
     """Build the TEvarSim Simulate command.
 
@@ -268,6 +362,8 @@ def _build_simulate_command(
         str(num_genomes),
         "--outprefix",
         outprefix,
+        "--sense-strand-ratio",
+        str(sense_strand_ratio),
     ]
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
@@ -295,6 +391,8 @@ def main(args):
 
     if args.num <= 0:
         raise ValueError(f"--num must be positive, got {args.num}")
+
+    _validate_tevarsim_rates(args)
 
     if args.bed:
         validate_file_exists(Path(args.bed))
@@ -325,6 +423,7 @@ def main(args):
                 num_genomes=args.num_genomes,
                 outprefix=str(output_dir / "Sim"),
                 seed=args.seed,
+                sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
             )
             run_command(cmd)
         else:
@@ -351,6 +450,15 @@ def main(args):
                     seed=args.seed,
                     ins_ratio=args.ins_ratio,
                     te_types=te_types,
+                    snp_rate=getattr(args, "snp_rate", 0.02),
+                    indel_rate=getattr(args, "indel_rate", 0.005),
+                    indel_ins=getattr(args, "indel_ins", 0.4),
+                    indel_geom_p=getattr(args, "indel_geom_p", 0.7),
+                    truncated_ratio=getattr(args, "truncated_ratio", 0.3),
+                    truncated_max_length=getattr(args, "truncated_max_length", 0.5),
+                    polya_ratio=getattr(args, "polyA_ratio", 0.8),
+                    polya_min=getattr(args, "polyA_min", 5),
+                    polya_max=getattr(args, "polyA_max", 20),
                 )
                 run_command(terandom_cmd)
 
@@ -364,6 +472,7 @@ def main(args):
                     num_genomes=args.num_genomes,
                     outprefix=sim_prefix,
                     seed=args.seed,
+                    sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
                 )
                 run_command(simulate_cmd)
 
@@ -392,6 +501,44 @@ def main(args):
             )
 
     logger.info("TE insertion complete. Output: %s", output_dir)
+
+
+def _validate_tevarsim_rates(args) -> None:
+    """Validate TEvarSim rate-style arguments before launching jobs."""
+    rate_fields = [
+        "ins_ratio",
+        "snp_rate",
+        "indel_rate",
+        "indel_ins",
+        "indel_geom_p",
+        "truncated_ratio",
+        "truncated_max_length",
+        "polyA_ratio",
+        "sense_strand_ratio",
+    ]
+    defaults = {
+        "snp_rate": 0.02,
+        "indel_rate": 0.005,
+        "indel_ins": 0.4,
+        "indel_geom_p": 0.7,
+        "truncated_ratio": 0.3,
+        "truncated_max_length": 0.5,
+        "polyA_ratio": 0.8,
+        "sense_strand_ratio": 0.5,
+    }
+    for field in rate_fields:
+        value = getattr(args, field, defaults.get(field))
+        if value is None:
+            continue
+        if not 0 <= value <= 1:
+            raise ValueError(f"--{field.replace('_', '-')} must be between 0 and 1")
+
+    polya_min = getattr(args, "polyA_min", 5)
+    polya_max = getattr(args, "polyA_max", 20)
+    if polya_min < 0:
+        raise ValueError("--polyA-min must be non-negative")
+    if polya_max < polya_min:
+        raise ValueError("--polyA-max must be greater than or equal to --polyA-min")
 
 
 def _append_renamed_first_fasta_record(
