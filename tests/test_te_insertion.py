@@ -21,6 +21,11 @@ def _mock_tevarsim_output(cmd):
         chrom = outprefix.name.removeprefix("Sim_")
         outprefix.parent.mkdir(parents=True, exist_ok=True)
         outprefix.with_suffix(".fa").write_text(f">{chrom}_0\nNNNN\n")
+        outprefix.with_suffix(".vcf").write_text(
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            f"{chrom}\t1\t.\tN\t<INS>\t.\tPASS\tSVTYPE=INS\n"
+        )
     return MagicMock(returncode=0, stdout="", stderr="")
 
 
@@ -150,16 +155,17 @@ class TestMain:
     @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_all_chroms(self, mock_run, mock_check, mock_extract):
+    def test_main_all_chroms(self, mock_run, mock_check, mock_extract, tmp_path):
         """Test main with all chromosomes selected."""
         mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_test"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=10,
-            output="results/te_test/",
+            output=str(output_dir),
             seed=42,
             bed=None,
             chroms="all",
@@ -175,20 +181,23 @@ class TestMain:
         simulate_cmds = [c for c in all_cmds if "Simulate" in c]
         assert len(terandom_cmds) >= 1
         assert len(simulate_cmds) >= 1
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_te.vcf").exists()
 
     @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_specific_chroms(self, mock_run, mock_check, mock_extract):
+    def test_main_specific_chroms(self, mock_run, mock_check, mock_extract, tmp_path):
         """Test main with specific chromosomes selected."""
         mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_test"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=5,
-            output="results/te_test/",
+            output=str(output_dir),
             seed=None,
             bed=None,
             chroms="Chr1,Chr3",
@@ -203,20 +212,23 @@ class TestMain:
         all_cmds = [call.args[0] for call in mock_run.call_args_list]
         terandom_cmds = [c for c in all_cmds if "TErandom" in c]
         assert all("--TEtype" in c and "Harbinger" in c for c in terandom_cmds)
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_te.vcf").exists()
 
     @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_range_chroms(self, mock_run, mock_check, mock_extract):
+    def test_main_range_chroms(self, mock_run, mock_check, mock_extract, tmp_path):
         """Test main with chromosome range Chr2-5."""
         mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_test"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=20,
-            output="results/te_test/",
+            output=str(output_dir),
             seed=None,
             bed=None,
             chroms="Chr2-5",
@@ -227,19 +239,22 @@ class TestMain:
         te_insertion.main(ns)
 
         assert mock_run.call_count == 8
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_te.vcf").exists()
 
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
     def test_main_with_bed_file(self, mock_run, mock_check, tmp_path):
         """Test main with pre-generated BED file (skips TErandom)."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_output"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=10,
-            output=str(tmp_path / "te_output"),
+            output=str(output_dir),
             seed=None,
             bed=str(DATA_DIR / "mini_te.bed"),
             chroms="all",
@@ -254,6 +269,8 @@ class TestMain:
         assert cmd[0] == "tevarsim"
         assert "Simulate" in cmd
         assert "--bed" in cmd
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_te.vcf").exists()
 
     def test_main_invalid_num(self):
         """Test that num <= 0 raises ValueError."""
@@ -327,16 +344,17 @@ class TestMain:
     @patch("simulate_data.modules.te_insertion.extract_chromosomes")
     @patch("simulate_data.modules.te_insertion.check_tool_installed")
     @patch("simulate_data.modules.te_insertion.run_command")
-    def test_main_no_seed(self, mock_run, mock_check, mock_extract):
+    def test_main_no_seed(self, mock_run, mock_check, mock_extract, tmp_path):
         """Test that seed is not passed when None."""
         mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_test"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=10,
-            output="results/te_test/",
+            output=str(output_dir),
             seed=None,
             bed=None,
             chroms="all",

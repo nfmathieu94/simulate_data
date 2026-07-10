@@ -12,6 +12,7 @@ A modular library for simulating genomic data for testing and benchmarking bioin
   - [SV Placement Only](#sv-placement-only)
   - [TE Insertion + SV Placement (Combined Pipeline)](#te-insertion--sv-placement-combined-pipeline)
   - [Read Simulation from a Modified Genome](#read-simulation-from-a-modified-genome)
+- [Output Contract](#output-contract)
 - [Parameter Reference](#parameter-reference)
   - [fastq](#fastq)
   - [te-insertion](#te-insertion)
@@ -88,7 +89,8 @@ pixi run simulate-data te-insertion \
     --output results/te_insertion/
 ```
 
-**Output:** `results/te_insertion/modified_genome.fa` (TE-integrated genome) and a VCF file with insertion annotations.
+**Output:** `results/te_insertion/final_genome.fa` (TE-integrated genome)
+and `results/te_insertion/truth_te.vcf` (TE insertion truth set).
 
 ### SV Placement Only
 
@@ -103,7 +105,8 @@ pixi run simulate-data sv-placement \
     --output results/sv_placement/
 ```
 
-**Output:** `results/sv_placement/modified_genome.fa` (SV-integrated genome) and a VCF file with variant annotations.
+**Output:** `results/sv_placement/final_genome.fa` (SV-integrated genome)
+and `results/sv_placement/truth_sv.vcf` (SV truth set).
 
 ### TE Insertion + SV Placement (Combined Pipeline)
 
@@ -122,14 +125,16 @@ pixi run simulate-data te-insertion \
 
 # Step 2: Place 50 SVs in the TE-modified genome
 pixi run simulate-data sv-placement \
-    --ref results/te_insertion/modified_genome.fa \
+    --ref results/te_insertion/final_genome.fa \
     --num-sv 50 \
     --sv-types DEL,DUP,INV,TRA \
     --seed 123 \
     --output results/sv_placement/
 ```
 
-**Output:** `results/sv_placement/modified_genome.fa` is the final genome with both TEs and SVs, along with two VCF files (one per step) serving as ground truth.
+**Output:** `results/sv_placement/final_genome.fa` is the final genome with
+both TEs and SVs. Ground-truth variants are written to
+`results/te_insertion/truth_te.vcf` and `results/sv_placement/truth_sv.vcf`.
 
 ### Read Simulation from a Modified Genome
 
@@ -138,7 +143,7 @@ After creating a modified genome (via TE insertion, SV placement, or both), simu
 ```bash
 # Illumina paired-end reads (150 bp, 20x coverage)
 pixi run simulate-data reads-illumina \
-    --ref results/sv_placement/modified_genome.fa \
+    --ref results/sv_placement/final_genome.fa \
     --read-length 150 \
     --coverage 20 \
     --seed 456 \
@@ -146,20 +151,33 @@ pixi run simulate-data reads-illumina \
 
 # Oxford Nanopore long reads (20x coverage)
 pixi run simulate-data reads-ont \
-    --ref results/sv_placement/modified_genome.fa \
+    --ref results/sv_placement/final_genome.fa \
     --coverage 20 \
     --seed 789 \
     --output results/reads_ont/
 
 # PacBio HiFi reads (20x coverage, 10 passes)
 pixi run simulate-data reads-pacbio \
-    --ref results/sv_placement/modified_genome.fa \
+    --ref results/sv_placement/final_genome.fa \
     --coverage 20 \
     --read-type HiFi \
     --pass-num 10 \
     --seed 101 \
     --output results/reads_pacbio/
 ```
+
+## Output Contract
+
+The genome-modifying modules keep tool-native intermediate outputs, but each
+module also writes stable downstream filenames:
+
+| Subcommand | Final genome | Truth VCF |
+|---|---|---|
+| `te-insertion` | `<output>/final_genome.fa` | `<output>/truth_te.vcf` |
+| `sv-placement` | `<output>/final_genome.fa` | `<output>/truth_sv.vcf` |
+
+Use `final_genome.fa` as the input reference for read simulation or the next
+genome modification step.
 
 ## Parameter Reference
 
@@ -287,7 +305,10 @@ sbatch scripts/run.sh          # Simple fastq generation
 sbatch scripts/run_pipeline.sh # Full TE → SV → reads pipeline
 ```
 
-All SLURM scripts use `set -euo pipefail` and `cd` to the project root before running `simulate-data`. Do not run heavy generation on the login node — wrap it in a SLURM script under `scripts/`.
+All SLURM scripts use `set -euo pipefail`, capture the submission directory
+with `BASE_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"`, and run from that directory.
+Submit these scripts from the repository root. Do not run heavy generation on
+the login node — wrap it in a SLURM script under `scripts/`.
 
 ## Adding a New Module
 

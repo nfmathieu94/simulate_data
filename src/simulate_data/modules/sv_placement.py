@@ -5,6 +5,7 @@ inversions, and translocations into specified chromosomes.
 """
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -187,21 +188,37 @@ def main(args):
 
         run_command(cmd)
 
-        # If we used a subset, merge the modified chromosomes back
-        if args.chroms.strip().lower() != "all":
-            modified_genome = output_dir / "sv_output_modified_genome.fa"
-            merged_output = output_dir / "final_genome.fa"
+        modified_genome = output_dir / "sv_output_modified_genome.fa"
+        truth_vcf_source = output_dir / "sv_output.vcf"
+        final_genome = output_dir / "final_genome.fa"
+        truth_vcf = output_dir / "truth_sv.vcf"
 
-            if modified_genome.exists():
-                merge_fasta(
-                    base_fasta=ref_path,
-                    modified_fasta=modified_genome,
-                    output_path=merged_output,
-                    modified_chroms=set(target_chroms),
-                )
-                logger.info(
-                    "Merged modified chromosomes with reference. Final genome: %s",
-                    merged_output,
-                )
+        if not modified_genome.exists():
+            raise FileNotFoundError(
+                f"Expected SURVIVOR output FASTA was not created: {modified_genome}"
+            )
+        if not truth_vcf_source.exists():
+            raise FileNotFoundError(
+                f"Expected SURVIVOR output VCF was not created: {truth_vcf_source}"
+            )
+
+        # If we used a subset, merge the modified chromosomes back.
+        if args.chroms.strip().lower() != "all":
+            merge_fasta(
+                base_fasta=ref_path,
+                modified_fasta=modified_genome,
+                output_path=final_genome,
+                modified_chroms=set(target_chroms),
+            )
+            logger.info(
+                "Merged modified chromosomes with reference. Final genome: %s",
+                final_genome,
+            )
+        else:
+            shutil.copyfile(modified_genome, final_genome)
+            logger.info("Copied final genome: %s", final_genome)
+
+        shutil.copyfile(truth_vcf_source, truth_vcf)
+        logger.info("Copied SV truth VCF: %s", truth_vcf)
 
     logger.info("SV placement complete. Output: %s", output_dir)

@@ -11,6 +11,7 @@ The TEvarSim workflow has two steps:
 """
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -416,16 +417,27 @@ def main(args):
         te_types = _split_te_types(getattr(args, "te_type", None))
 
         if args.bed:
+            sim_prefix = output_dir / "Sim"
             cmd = _build_simulate_command(
                 ref_fasta=ref_path,
                 te_pool=te_path,
                 bed_file=Path(args.bed),
                 num_genomes=args.num_genomes,
-                outprefix=str(output_dir / "Sim"),
+                outprefix=str(sim_prefix),
                 seed=args.seed,
                 sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
             )
             run_command(cmd)
+            _copy_expected_output(
+                source=sim_prefix.with_suffix(".fa"),
+                destination=output_dir / "final_genome.fa",
+                label="TEvarSim genome FASTA",
+            )
+            _copy_expected_output(
+                source=sim_prefix.with_suffix(".vcf"),
+                destination=output_dir / "truth_te.vcf",
+                label="TEvarSim VCF",
+            )
         else:
             if args.num_genomes != 1:
                 raise ValueError(
@@ -434,6 +446,7 @@ def main(args):
                 )
 
             modified_subset_fasta = tmpdir_path / "modified_chromosomes.fa"
+            vcf_paths: list[Path] = []
             for chrom in target_chroms:
                 logger.info("Processing chromosome %s", chrom)
 
@@ -486,8 +499,15 @@ def main(args):
                     output_fasta=modified_subset_fasta,
                     record_name=chrom,
                 )
+                sim_vcf = Path(f"{sim_prefix}.vcf")
+                if not sim_vcf.exists():
+                    raise FileNotFoundError(
+                        f"Expected TEvarSim output VCF was not created: {sim_vcf}"
+                    )
+                vcf_paths.append(sim_vcf)
 
             merged_output = output_dir / "final_genome.fa"
+            truth_vcf = output_dir / "truth_te.vcf"
 
             merge_fasta(
                 base_fasta=ref_path,
@@ -495,10 +515,12 @@ def main(args):
                 output_path=merged_output,
                 modified_chroms=set(target_chroms),
             )
+            _combine_vcfs(vcf_paths, truth_vcf)
             logger.info(
                 "Merged modified chromosomes with reference. Final genome: %s",
                 merged_output,
             )
+            logger.info("Combined TE truth VCF: %s", truth_vcf)
 
     logger.info("TE insertion complete. Output: %s", output_dir)
 
@@ -539,6 +561,37 @@ def _validate_tevarsim_rates(args) -> None:
         raise ValueError("--polyA-min must be non-negative")
     if polya_max < polya_min:
         raise ValueError("--polyA-max must be greater than or equal to --polyA-min")
+
+
+def _copy_expected_output(source: Path, destination: Path, label: str) -> Path:
+    """Copy a required tool output into the public output contract."""
+    if not source.exists():
+        raise FileNotFoundError(f"Expected {label} was not created: {source}")
+    shutil.copyfile(source, destination)
+    logger.info("Wrote %s: %s", label, destination)
+    return destination
+
+
+def _combine_vcfs(vcf_paths: list[Path], output_vcf: Path) -> Path:
+    """Combine per-chromosome VCF files while keeping one header block."""
+    if not vcf_paths:
+        raise ValueError("No TE VCF files were provided for combination")
+
+    with open(output_vcf, "w") as fout:
+        for index, vcf_path in enumerate(vcf_paths):
+            if not vcf_path.exists():
+                raise FileNotFoundError(
+                    f"Expected TEvarSim output VCF was not created: {vcf_path}"
+                )
+            with open(vcf_path, "r") as fin:
+                for line in fin:
+                    if line.startswith("#"):
+                        if index == 0:
+                            fout.write(line)
+                        continue
+                    fout.write(line)
+
+    return output_vcf
 
 
 def _append_renamed_first_fasta_record(

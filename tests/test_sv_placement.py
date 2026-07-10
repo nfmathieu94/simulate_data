@@ -12,6 +12,21 @@ DATA_DIR = Path(__file__).parent / "data"
 MINI_GENOME = DATA_DIR / "mini_genome.fa"
 
 
+def _mock_survivor_output(cmd):
+    """Create the FASTA and VCF outputs expected from mocked SURVIVOR simSV."""
+    output_prefix = Path(cmd[-1])
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    output_prefix.parent.joinpath("sv_output_modified_genome.fa").write_text(
+        ">Chr1\nNNNN\n"
+    )
+    output_prefix.with_suffix(".vcf").write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "Chr1\t1\t.\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL\n"
+    )
+    return MagicMock(returncode=0, stdout="", stderr="")
+
+
 class TestRegisterParser:
     """Tests for register_parser."""
 
@@ -76,12 +91,13 @@ class TestMain:
     @patch("simulate_data.modules.sv_placement.run_command")
     def test_main_all_chroms(self, mock_run, mock_check, tmp_path):
         """Test main with all chromosomes selected."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_survivor_output
+        output_dir = tmp_path / "sv_output"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             num_sv=10,
-            output=str(tmp_path / "sv_output"),
+            output=str(output_dir),
             sv_types="DEL,DUP,INV,TRA",
             seed=42,
             config=None,
@@ -94,17 +110,20 @@ class TestMain:
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "SURVIVOR"
         assert "simSV" in cmd
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_sv.vcf").exists()
 
     @patch("simulate_data.modules.sv_placement.check_tool_installed")
     @patch("simulate_data.modules.sv_placement.run_command")
     def test_main_specific_chroms(self, mock_run, mock_check, tmp_path):
         """Test main with specific chromosomes selected."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_survivor_output
+        output_dir = tmp_path / "sv_output"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             num_sv=5,
-            output=str(tmp_path / "sv_output"),
+            output=str(output_dir),
             sv_types="DEL,DUP,INV,TRA",
             seed=None,
             config=None,
@@ -116,17 +135,20 @@ class TestMain:
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "SURVIVOR"
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_sv.vcf").exists()
 
     @patch("simulate_data.modules.sv_placement.check_tool_installed")
     @patch("simulate_data.modules.sv_placement.run_command")
     def test_main_range_chroms(self, mock_run, mock_check, tmp_path):
         """Test main with chromosome range Chr2-5."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_survivor_output
+        output_dir = tmp_path / "sv_output"
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             num_sv=20,
-            output=str(tmp_path / "sv_output"),
+            output=str(output_dir),
             sv_types="DEL,DUP,INV,TRA",
             seed=None,
             config=None,
@@ -136,12 +158,14 @@ class TestMain:
         sv_placement.main(ns)
 
         mock_run.assert_called_once()
+        assert (output_dir / "final_genome.fa").exists()
+        assert (output_dir / "truth_sv.vcf").exists()
 
     @patch("simulate_data.modules.sv_placement.check_tool_installed")
     @patch("simulate_data.modules.sv_placement.run_command")
     def test_main_custom_sv_types(self, mock_run, mock_check, tmp_path):
         """Test main with custom SV types."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_survivor_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -164,7 +188,7 @@ class TestMain:
         config_path = tmp_path / "survivor_config.txt"
         config_path.write_text("# SURVIVOR config\nSV_TYPES=DEL\nNUM_SV=10\n")
 
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = _mock_survivor_output
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),

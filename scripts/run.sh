@@ -1,19 +1,20 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -l
 set -euo pipefail
 
 #SBATCH --job-name=sim_fastq
-#SBATCH --output=../logs/%x_%j.out
-#SBATCH --error=../logs/%x_%j.err
+#SBATCH -p short
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 #SBATCH --time=00:10:00
 #SBATCH --mem=1G
 #SBATCH --cpus-per-task=1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+cd "$BASE_DIR"
 
-cd "$PROJECT_ROOT"
+mkdir -p logs results
 
-simulate-data fastq \
+pixi run simulate-data fastq \
     -n 1000 \
     -l 150 \
     --seed 42 \
