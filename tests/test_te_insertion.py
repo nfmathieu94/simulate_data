@@ -71,6 +71,8 @@ class TestRegisterParser:
         assert args.polyA_min == 5
         assert args.polyA_max == 20
         assert args.sense_strand_ratio == 0.5
+        assert args.tsd_min == 3
+        assert args.tsd_max == 5
 
     def test_register_parser_with_all_options(self):
         parser = argparse.ArgumentParser()
@@ -122,6 +124,10 @@ class TestRegisterParser:
                 "12",
                 "--sense-strand-ratio",
                 "0.7",
+                "--tsd-min",
+                "4",
+                "--tsd-max",
+                "6",
             ]
         )
         assert args.seed == 42
@@ -140,6 +146,8 @@ class TestRegisterParser:
         assert args.polyA_min == 3
         assert args.polyA_max == 12
         assert args.sense_strand_ratio == 0.7
+        assert args.tsd_min == 4
+        assert args.tsd_max == 6
 
     def test_register_parser_missing_required(self):
         parser = argparse.ArgumentParser()
@@ -305,6 +313,25 @@ class TestMain:
             snp_rate=1.5,
         )
         with pytest.raises(ValueError, match="snp-rate"):
+            te_insertion.main(ns)
+
+    def test_main_invalid_tsd_bounds(self):
+        """Test that TSD bounds must be positive and ordered."""
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=10,
+            output="results/",
+            seed=None,
+            bed=None,
+            chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
+            tsd_min=6,
+            tsd_max=5,
+        )
+        with pytest.raises(ValueError, match="tsd-max"):
             te_insertion.main(ns)
 
     def test_main_missing_ref(self):
@@ -479,6 +506,10 @@ class TestBuildCommands:
         assert "--num" in cmd
         assert "--outprefix" in cmd
         assert "--sense-strand-ratio" in cmd
+        assert "--tsd-min" in cmd
+        assert "--tsd-max" in cmd
+        assert cmd[cmd.index("--tsd-min") + 1] == "3"
+        assert cmd[cmd.index("--tsd-max") + 1] == "5"
         assert "--seed" not in cmd
 
     def test_build_simulate_command_with_seed(self):
@@ -502,6 +533,19 @@ class TestBuildCommands:
             sense_strand_ratio=0.75,
         )
         assert cmd[cmd.index("--sense-strand-ratio") + 1] == "0.75"
+
+    def test_build_simulate_command_with_tsd_bounds(self):
+        cmd = te_insertion._build_simulate_command(
+            ref_fasta=Path("ref.fa"),
+            te_pool=Path("pool.fa"),
+            bed_file=Path("pos.bed"),
+            num_genomes=1,
+            outprefix="/tmp/Sim",
+            tsd_min=4,
+            tsd_max=6,
+        )
+        assert cmd[cmd.index("--tsd-min") + 1] == "4"
+        assert cmd[cmd.index("--tsd-max") + 1] == "6"
 
 
 class TestRepeatMaskerGffConversion:

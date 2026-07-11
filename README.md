@@ -85,6 +85,8 @@ pixi run simulate-data te-insertion \
     --snp-rate 0.01 \
     --indel-rate 0.002 \
     --sense-strand-ratio 0.7 \
+    --tsd-min 3 \
+    --tsd-max 5 \
     --seed 42 \
     --output results/te_insertion/
 ```
@@ -219,6 +221,8 @@ Insert transposable elements (TEs) from a consensus FASTA into specified chromos
 | `--polyA-min` | int | 5 | Minimum polyA tail length |
 | `--polyA-max` | int | 20 | Maximum polyA tail length |
 | `--sense-strand-ratio` | float | 0.5 | Proportion of TE insertions simulated on the sense strand |
+| `--tsd-min` | int | 3 | Minimum target-site duplication length in bp |
+| `--tsd-max` | int | 5 | Maximum target-site duplication length in bp |
 
 ### sv-placement
 

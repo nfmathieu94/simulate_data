@@ -169,6 +169,18 @@ def register_parser(parser):
             "(0-1, default: 0.5)"
         ),
     )
+    parser.add_argument(
+        "--tsd-min",
+        type=int,
+        default=3,
+        help="Minimum target-site duplication length in bp (default: 3)",
+    )
+    parser.add_argument(
+        "--tsd-max",
+        type=int,
+        default=5,
+        help="Maximum target-site duplication length in bp (default: 5)",
+    )
 
 
 def _split_te_types(te_types: list[str] | None) -> list[str]:
@@ -343,6 +355,8 @@ def _build_simulate_command(
     outprefix: str,
     seed: int | None = None,
     sense_strand_ratio: float = 0.5,
+    tsd_min: int = 3,
+    tsd_max: int = 5,
 ) -> list[str]:
     """Build the TEvarSim Simulate command.
 
@@ -365,6 +379,10 @@ def _build_simulate_command(
         outprefix,
         "--sense-strand-ratio",
         str(sense_strand_ratio),
+        "--tsd-min",
+        str(tsd_min),
+        "--tsd-max",
+        str(tsd_max),
     ]
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
@@ -394,6 +412,7 @@ def main(args):
         raise ValueError(f"--num must be positive, got {args.num}")
 
     _validate_tevarsim_rates(args)
+    _validate_tsd_bounds(args)
 
     if args.bed:
         validate_file_exists(Path(args.bed))
@@ -426,6 +445,8 @@ def main(args):
                 outprefix=str(sim_prefix),
                 seed=args.seed,
                 sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
+                tsd_min=getattr(args, "tsd_min", 3),
+                tsd_max=getattr(args, "tsd_max", 5),
             )
             run_command(cmd)
             _copy_expected_output(
@@ -486,6 +507,8 @@ def main(args):
                     outprefix=sim_prefix,
                     seed=args.seed,
                     sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
+                    tsd_min=getattr(args, "tsd_min", 3),
+                    tsd_max=getattr(args, "tsd_max", 5),
                 )
                 run_command(simulate_cmd)
 
@@ -561,6 +584,18 @@ def _validate_tevarsim_rates(args) -> None:
         raise ValueError("--polyA-min must be non-negative")
     if polya_max < polya_min:
         raise ValueError("--polyA-max must be greater than or equal to --polyA-min")
+
+
+def _validate_tsd_bounds(args) -> None:
+    """Validate TEvarSim target-site duplication length bounds."""
+    tsd_min = getattr(args, "tsd_min", 3)
+    tsd_max = getattr(args, "tsd_max", 5)
+    if tsd_min <= 0:
+        raise ValueError("--tsd-min must be positive")
+    if tsd_max <= 0:
+        raise ValueError("--tsd-max must be positive")
+    if tsd_max < tsd_min:
+        raise ValueError("--tsd-max must be greater than or equal to --tsd-min")
 
 
 def _copy_expected_output(source: Path, destination: Path, label: str) -> Path:
