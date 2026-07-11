@@ -18,13 +18,28 @@ def _mock_tevarsim_output(cmd):
     """Create the FASTA output expected from mocked TEvarSim Simulate."""
     if "Simulate" in cmd:
         outprefix = Path(cmd[cmd.index("--outprefix") + 1])
+        num_genomes = int(cmd[cmd.index("--num") + 1])
         chrom = outprefix.name.removeprefix("Sim_")
         outprefix.parent.mkdir(parents=True, exist_ok=True)
-        outprefix.with_suffix(".fa").write_text(f">{chrom}_0\nNNNN\n")
+        outprefix.with_suffix(".fa").write_text(
+            "".join(f">{chrom}_{i}\nNNNN{i}\n" for i in range(num_genomes))
+        )
+        samples = [f"Hap{i + 1}" for i in range(num_genomes)]
+        if num_genomes == 1:
+            gts = ["1"]
+        elif num_genomes == 2:
+            gts = ["1", "0"]
+        else:
+            gts = ["1"] + ["0"] * (num_genomes - 1)
         outprefix.with_suffix(".vcf").write_text(
             "##fileformat=VCFv4.2\n"
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            f"{chrom}\t1\t.\tN\t<INS>\t.\tPASS\tSVTYPE=INS\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+            + "\t".join(samples)
+            + "\n"
+            + f"{chrom}\t1\t.\tN\t<INS>\t.\tPASS\t"
+            + "TYPE=INS;TSD=3;TEFAMILY=mPing\tGT\t"
+            + "\t".join(gts)
+            + "\n"
         )
     return MagicMock(returncode=0, stdout="", stderr="")
 
@@ -71,6 +86,8 @@ class TestRegisterParser:
         assert args.polyA_min == 5
         assert args.polyA_max == 20
         assert args.sense_strand_ratio == 0.5
+        assert args.af_min == 0.1
+        assert args.af_max == 0.9
         assert args.tsd_min == 3
         assert args.tsd_max == 5
 
@@ -124,6 +141,10 @@ class TestRegisterParser:
                 "12",
                 "--sense-strand-ratio",
                 "0.7",
+                "--af-min",
+                "0.4",
+                "--af-max",
+                "0.8",
                 "--tsd-min",
                 "4",
                 "--tsd-max",
@@ -146,6 +167,8 @@ class TestRegisterParser:
         assert args.polyA_min == 3
         assert args.polyA_max == 12
         assert args.sense_strand_ratio == 0.7
+        assert args.af_min == 0.4
+        assert args.af_max == 0.8
         assert args.tsd_min == 4
         assert args.tsd_max == 6
 
@@ -334,6 +357,25 @@ class TestMain:
         with pytest.raises(ValueError, match="tsd-max"):
             te_insertion.main(ns)
 
+    def test_main_invalid_af_bounds(self):
+        """Test that AF bounds must be ordered."""
+        ns = argparse.Namespace(
+            ref=str(MINI_GENOME),
+            te=str(MINI_TE),
+            known_del=str(MINI_KNOWN_DEL),
+            num=10,
+            output="results/",
+            seed=None,
+            bed=None,
+            chroms="all",
+            num_genomes=1,
+            ins_ratio=0.6,
+            af_min=0.8,
+            af_max=0.4,
+        )
+        with pytest.raises(ValueError, match="af-max"):
+            te_insertion.main(ns)
+
     def test_main_missing_ref(self):
         """Test that missing reference file raises FileNotFoundError."""
         ns = argparse.Namespace(
@@ -395,13 +437,21 @@ class TestMain:
         for cmd in all_cmds:
             assert "--seed" not in cmd
 
-    def test_main_num_genomes_requires_single_genome_for_chrom_subset(self):
+    @patch("simulate_data.modules.te_insertion.extract_chromosomes")
+    @patch("simulate_data.modules.te_insertion.check_tool_installed")
+    @patch("simulate_data.modules.te_insertion.run_command")
+    def test_main_num_genomes_two_chrom_subset(
+        self, mock_run, mock_check, mock_extract, tmp_path
+    ):
+        """Test diploid chromosome-subset merging and zygosity truth output."""
+        mock_run.side_effect = _mock_tevarsim_output
+        output_dir = tmp_path / "te_test"
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
             te=str(MINI_TE),
             known_del=str(MINI_KNOWN_DEL),
             num=10,
-            output="results/",
+            output=str(output_dir),
             seed=None,
             bed=None,
             chroms="Chr1,Chr2",
@@ -409,9 +459,22 @@ class TestMain:
             ins_ratio=0.6,
             te_type=None,
         )
-        with patch("simulate_data.modules.te_insertion.check_tool_installed"):
-            with pytest.raises(ValueError, match="num-genomes"):
-                te_insertion.main(ns)
+
+        te_insertion.main(ns)
+
+        headers = [
+            line.strip()
+            for line in (output_dir / "final_genome.fa").read_text().splitlines()
+            if line.startswith(">")
+        ]
+        assert ">Chr1_Hap1" in headers
+        assert ">Chr1_Hap2" in headers
+        assert ">Chr2_Hap1" in headers
+        assert ">Chr2_Hap2" in headers
+        assert ">Chr3_Hap1" in headers
+        assert ">Chr3_Hap2" in headers
+        truth = (output_dir / "truth_te_zygosity.tsv").read_text()
+        assert "heterozygous" in truth
 
 
 class TestBuildCommands:
@@ -506,6 +569,10 @@ class TestBuildCommands:
         assert "--num" in cmd
         assert "--outprefix" in cmd
         assert "--sense-strand-ratio" in cmd
+        assert "--af-min" in cmd
+        assert "--af-max" in cmd
+        assert cmd[cmd.index("--af-min") + 1] == "0.1"
+        assert cmd[cmd.index("--af-max") + 1] == "0.9"
         assert "--tsd-min" in cmd
         assert "--tsd-max" in cmd
         assert cmd[cmd.index("--tsd-min") + 1] == "3"
@@ -546,6 +613,19 @@ class TestBuildCommands:
         )
         assert cmd[cmd.index("--tsd-min") + 1] == "4"
         assert cmd[cmd.index("--tsd-max") + 1] == "6"
+
+    def test_build_simulate_command_with_af_bounds(self):
+        cmd = te_insertion._build_simulate_command(
+            ref_fasta=Path("ref.fa"),
+            te_pool=Path("pool.fa"),
+            bed_file=Path("pos.bed"),
+            num_genomes=2,
+            outprefix="/tmp/Sim",
+            af_min=0.5,
+            af_max=0.5,
+        )
+        assert cmd[cmd.index("--af-min") + 1] == "0.5"
+        assert cmd[cmd.index("--af-max") + 1] == "0.5"
 
 
 class TestRepeatMaskerGffConversion:

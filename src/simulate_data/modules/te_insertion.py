@@ -84,7 +84,10 @@ def register_parser(parser):
         "--num-genomes",
         type=int,
         default=1,
-        help="Number of genomes to simulate (default: 1)",
+        help=(
+            "Number of haplotypes/genomes to simulate. Use 2 for diploid "
+            "RelocaTE-style zygosity benchmarks (default: 1)"
+        ),
     )
     parser.add_argument(
         "--ins-ratio",
@@ -168,6 +171,18 @@ def register_parser(parser):
             "Proportion of TE insertions simulated on the sense strand "
             "(0-1, default: 0.5)"
         ),
+    )
+    parser.add_argument(
+        "--af-min",
+        type=float,
+        default=0.1,
+        help="Minimum allele frequency used by TEvarSim Simulate (default: 0.1)",
+    )
+    parser.add_argument(
+        "--af-max",
+        type=float,
+        default=0.9,
+        help="Maximum allele frequency used by TEvarSim Simulate (default: 0.9)",
     )
     parser.add_argument(
         "--tsd-min",
@@ -355,6 +370,8 @@ def _build_simulate_command(
     outprefix: str,
     seed: int | None = None,
     sense_strand_ratio: float = 0.5,
+    af_min: float = 0.1,
+    af_max: float = 0.9,
     tsd_min: int = 3,
     tsd_max: int = 5,
 ) -> list[str]:
@@ -379,6 +396,10 @@ def _build_simulate_command(
         outprefix,
         "--sense-strand-ratio",
         str(sense_strand_ratio),
+        "--af-min",
+        str(af_min),
+        "--af-max",
+        str(af_max),
         "--tsd-min",
         str(tsd_min),
         "--tsd-max",
@@ -410,6 +431,8 @@ def main(args):
 
     if args.num <= 0:
         raise ValueError(f"--num must be positive, got {args.num}")
+    if args.num_genomes <= 0:
+        raise ValueError(f"--num-genomes must be positive, got {args.num_genomes}")
 
     _validate_tevarsim_rates(args)
     _validate_tsd_bounds(args)
@@ -445,6 +468,8 @@ def main(args):
                 outprefix=str(sim_prefix),
                 seed=args.seed,
                 sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
+                af_min=getattr(args, "af_min", 0.1),
+                af_max=getattr(args, "af_max", 0.9),
                 tsd_min=getattr(args, "tsd_min", 3),
                 tsd_max=getattr(args, "tsd_max", 5),
             )
@@ -459,14 +484,13 @@ def main(args):
                 destination=output_dir / "truth_te.vcf",
                 label="TEvarSim VCF",
             )
+            _write_zygosity_truth(
+                vcf_paths=[sim_prefix.with_suffix(".vcf")],
+                output_tsv=output_dir / "truth_te_zygosity.tsv",
+            )
         else:
-            if args.num_genomes != 1:
-                raise ValueError(
-                    "--num-genomes > 1 is only supported without chromosome "
-                    "subsetting in the current TE wrapper"
-                )
-
             modified_subset_fasta = tmpdir_path / "modified_chromosomes.fa"
+            modified_haplotype_fastas: dict[str, Path] = {}
             vcf_paths: list[Path] = []
             for chrom in target_chroms:
                 logger.info("Processing chromosome %s", chrom)
@@ -507,6 +531,8 @@ def main(args):
                     outprefix=sim_prefix,
                     seed=args.seed,
                     sense_strand_ratio=getattr(args, "sense_strand_ratio", 0.5),
+                    af_min=getattr(args, "af_min", 0.1),
+                    af_max=getattr(args, "af_max", 0.9),
                     tsd_min=getattr(args, "tsd_min", 3),
                     tsd_max=getattr(args, "tsd_max", 5),
                 )
@@ -517,11 +543,14 @@ def main(args):
                     raise FileNotFoundError(
                         f"Expected TEvarSim output FASTA was not created: {sim_fasta}"
                     )
-                _append_renamed_first_fasta_record(
-                    input_fasta=sim_fasta,
-                    output_fasta=modified_subset_fasta,
-                    record_name=chrom,
-                )
+                if args.num_genomes == 1:
+                    _append_renamed_first_fasta_record(
+                        input_fasta=sim_fasta,
+                        output_fasta=modified_subset_fasta,
+                        record_name=chrom,
+                    )
+                else:
+                    modified_haplotype_fastas[chrom] = sim_fasta
                 sim_vcf = Path(f"{sim_prefix}.vcf")
                 if not sim_vcf.exists():
                     raise FileNotFoundError(
@@ -532,13 +561,26 @@ def main(args):
             merged_output = output_dir / "final_genome.fa"
             truth_vcf = output_dir / "truth_te.vcf"
 
-            merge_fasta(
-                base_fasta=ref_path,
-                modified_fasta=modified_subset_fasta,
-                output_path=merged_output,
-                modified_chroms=set(target_chroms),
-            )
+            if args.num_genomes == 1:
+                merge_fasta(
+                    base_fasta=ref_path,
+                    modified_fasta=modified_subset_fasta,
+                    output_path=merged_output,
+                    modified_chroms=set(target_chroms),
+                )
+            else:
+                _merge_haplotype_fastas(
+                    base_fasta=ref_path,
+                    modified_fastas=modified_haplotype_fastas,
+                    output_path=merged_output,
+                    modified_chroms=set(target_chroms),
+                    num_genomes=args.num_genomes,
+                )
             _combine_vcfs(vcf_paths, truth_vcf)
+            _write_zygosity_truth(
+                vcf_paths=vcf_paths,
+                output_tsv=output_dir / "truth_te_zygosity.tsv",
+            )
             logger.info(
                 "Merged modified chromosomes with reference. Final genome: %s",
                 merged_output,
@@ -560,6 +602,8 @@ def _validate_tevarsim_rates(args) -> None:
         "truncated_max_length",
         "polyA_ratio",
         "sense_strand_ratio",
+        "af_min",
+        "af_max",
     ]
     defaults = {
         "snp_rate": 0.02,
@@ -570,6 +614,8 @@ def _validate_tevarsim_rates(args) -> None:
         "truncated_max_length": 0.5,
         "polyA_ratio": 0.8,
         "sense_strand_ratio": 0.5,
+        "af_min": 0.1,
+        "af_max": 0.9,
     }
     for field in rate_fields:
         value = getattr(args, field, defaults.get(field))
@@ -584,6 +630,11 @@ def _validate_tevarsim_rates(args) -> None:
         raise ValueError("--polyA-min must be non-negative")
     if polya_max < polya_min:
         raise ValueError("--polyA-max must be greater than or equal to --polyA-min")
+
+    af_min = getattr(args, "af_min", 0.1)
+    af_max = getattr(args, "af_max", 0.9)
+    if af_max < af_min:
+        raise ValueError("--af-max must be greater than or equal to --af-min")
 
 
 def _validate_tsd_bounds(args) -> None:
@@ -627,6 +678,154 @@ def _combine_vcfs(vcf_paths: list[Path], output_vcf: Path) -> Path:
                     fout.write(line)
 
     return output_vcf
+
+
+def _read_fasta_records(fasta_path: Path) -> list[tuple[str, str]]:
+    """Read FASTA records as (name, sequence) tuples."""
+    records: list[tuple[str, str]] = []
+    current_name: str | None = None
+    current_seq: list[str] = []
+
+    with open(fasta_path, "r") as fin:
+        for line in fin:
+            if line.startswith(">"):
+                if current_name is not None:
+                    records.append((current_name, "".join(current_seq)))
+                current_name = line[1:].strip().split()[0]
+                current_seq = []
+            else:
+                current_seq.append(line.strip())
+        if current_name is not None:
+            records.append((current_name, "".join(current_seq)))
+
+    if not records:
+        raise ValueError(f"No FASTA records found in {fasta_path}")
+    return records
+
+
+def _write_fasta_record(handle, name: str, sequence: str, line_width: int = 60) -> None:
+    """Write one FASTA record."""
+    handle.write(f">{name}\n")
+    for i in range(0, len(sequence), line_width):
+        handle.write(sequence[i : i + line_width] + "\n")
+
+
+def _merge_haplotype_fastas(
+    base_fasta: Path,
+    modified_fastas: dict[str, Path],
+    output_path: Path,
+    modified_chroms: set[str],
+    num_genomes: int,
+) -> Path:
+    """Write a multi-haplotype genome FASTA for diploid read simulation.
+
+    Modified chromosomes are taken from each chromosome-specific TEvarSim output.
+    Unmodified chromosomes are duplicated once per haplotype so read simulators
+    sample both alleles across the whole genome.
+    """
+    if num_genomes <= 0:
+        raise ValueError("num_genomes must be positive")
+
+    modified_records: dict[str, list[tuple[str, str]]] = {}
+    for chrom in modified_chroms:
+        if chrom not in modified_fastas:
+            raise FileNotFoundError(f"Missing modified FASTA for chromosome {chrom}")
+        records = _read_fasta_records(modified_fastas[chrom])
+        if len(records) != num_genomes:
+            raise ValueError(
+                f"Expected {num_genomes} haplotype records for {chrom}, "
+                f"found {len(records)} in {modified_fastas[chrom]}"
+            )
+        modified_records[chrom] = records
+
+    with open(output_path, "w") as fout:
+        for chrom, seq in _read_fasta_records(base_fasta):
+            if chrom in modified_chroms:
+                for hap_index, (_name, hap_seq) in enumerate(
+                    modified_records[chrom], start=1
+                ):
+                    _write_fasta_record(fout, f"{chrom}_Hap{hap_index}", hap_seq)
+            else:
+                for hap_index in range(1, num_genomes + 1):
+                    _write_fasta_record(fout, f"{chrom}_Hap{hap_index}", seq)
+
+    return output_path
+
+
+def _parse_info_field(info: str) -> dict[str, str]:
+    """Parse a VCF INFO field into a dictionary."""
+    parsed: dict[str, str] = {}
+    for item in info.split(";"):
+        if not item:
+            continue
+        if "=" in item:
+            key, value = item.split("=", 1)
+            parsed[key] = value
+        else:
+            parsed[item] = "true"
+    return parsed
+
+
+def _classify_haplotype_gts(gts: list[str]) -> str:
+    """Classify TEvarSim haplotype GT columns into zygosity labels."""
+    present = sum(1 for gt in gts if gt in {"1", "1.0"})
+    if len(gts) == 1:
+        return "haploid_present" if present == 1 else "absent"
+    if present == 0:
+        return "absent"
+    if present == len(gts):
+        return "homozygous"
+    return "heterozygous"
+
+
+def _write_zygosity_truth(vcf_paths: list[Path], output_tsv: Path) -> Path:
+    """Write a TSV truth table with haplotype GTs and zygosity labels."""
+    if not vcf_paths:
+        raise ValueError("No TE VCF files were provided for zygosity truth")
+
+    with open(output_tsv, "w") as fout:
+        fout.write(
+            "chrom\tpos\tid\ttype\ttsd\tte_family\tgenotypes\t"
+            "present_haplotypes\tzygosity\n"
+        )
+        for vcf_path in vcf_paths:
+            samples: list[str] = []
+            with open(vcf_path, "r") as fin:
+                for line in fin:
+                    if line.startswith("#CHROM"):
+                        samples = line.rstrip("\n").split("\t")[9:]
+                        continue
+                    if line.startswith("#") or not line.strip():
+                        continue
+                    fields = line.rstrip("\n").split("\t")
+                    if len(fields) < 10:
+                        continue
+                    info = _parse_info_field(fields[7])
+                    gts = fields[9:]
+                    present = sum(1 for gt in gts if gt in {"1", "1.0"})
+                    if samples and len(samples) != len(gts):
+                        raise ValueError(
+                            f"Sample/GT count mismatch in {vcf_path}: "
+                            f"{len(samples)} samples, {len(gts)} GTs"
+                        )
+                    fout.write(
+                        "\t".join(
+                            [
+                                fields[0],
+                                fields[1],
+                                fields[2],
+                                info.get("TYPE", "."),
+                                info.get("TSD", "."),
+                                info.get("TEFAMILY", "."),
+                                ",".join(gts),
+                                str(present),
+                                _classify_haplotype_gts(gts),
+                            ]
+                        )
+                        + "\n"
+                    )
+
+    return output_tsv
 
 
 def _append_renamed_first_fasta_record(

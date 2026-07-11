@@ -82,6 +82,9 @@ pixi run simulate-data te-insertion \
     --known-del data/ref_genome/MSU_r7.fa.RepeatMasker.out \
     --num 100 \
     --chroms Chr1-5 \
+    --num-genomes 2 \
+    --af-min 0.5 \
+    --af-max 0.5 \
     --snp-rate 0.01 \
     --indel-rate 0.002 \
     --sense-strand-ratio 0.7 \
@@ -92,7 +95,10 @@ pixi run simulate-data te-insertion \
 ```
 
 **Output:** `results/te_insertion/final_genome.fa` (TE-integrated genome)
-and `results/te_insertion/truth_te.vcf` (TE insertion truth set).
+and `results/te_insertion/truth_te.vcf` (TE insertion truth set). With
+`--num-genomes 2`, `final_genome.fa` contains two haplotype records per
+chromosome and `truth_te_zygosity.tsv` labels each event as `homozygous`,
+`heterozygous`, or `absent`.
 
 ### SV Placement Only
 
@@ -208,7 +214,7 @@ Insert transposable elements (TEs) from a consensus FASTA into specified chromos
 | `--chroms` | string | `all` | Chromosomes to insert TEs into (see [Chromosome Selection](#chromosome-selection)) |
 | `--seed` | int | None | Random seed for reproducibility |
 | `--bed` | path | None | BED file of pre-generated TE positions |
-| `--num-genomes` | int | 1 | Number of genomes/haplotypes for TEvarSim `Simulate` |
+| `--num-genomes` | int | 1 | Number of genomes/haplotypes for TEvarSim `Simulate`; use `2` for diploid zygosity benchmarks |
 | `--ins-ratio` | float | 0.6 | Proportion of TE events that are insertions |
 | `--te-type` | string | None | TE family/superfamily filter; can be repeated or comma-separated |
 | `--snp-rate` | float | 0.02 | SNP mutation rate per base when generating inserted TE copies |
@@ -221,6 +227,8 @@ Insert transposable elements (TEs) from a consensus FASTA into specified chromos
 | `--polyA-min` | int | 5 | Minimum polyA tail length |
 | `--polyA-max` | int | 20 | Maximum polyA tail length |
 | `--sense-strand-ratio` | float | 0.5 | Proportion of TE insertions simulated on the sense strand |
+| `--af-min` | float | 0.1 | Minimum allele frequency used by TEvarSim `Simulate` |
+| `--af-max` | float | 0.9 | Maximum allele frequency used by TEvarSim `Simulate` |
 | `--tsd-min` | int | 3 | Minimum target-site duplication length in bp |
 | `--tsd-max` | int | 5 | Maximum target-site duplication length in bp |
 
