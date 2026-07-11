@@ -68,7 +68,12 @@ def register_parser(parser):
     parser.add_argument(
         "--profile",
         default=None,
-        help="ART error profile path (e.g., HiSeq, NovaSeq)",
+        help="Deprecated alias for --sequencing-system",
+    )
+    parser.add_argument(
+        "--sequencing-system",
+        default="HSXn",
+        help="ART built-in sequencing system (default: HSXn)",
     )
 
 
@@ -82,10 +87,14 @@ def _build_art_command(
     fragment_std: int = 30,
     seed: int | None = None,
     profile: str | None = None,
+    sequencing_system: str = "HSXn",
+    sam: bool = False,
 ) -> list[str]:
     """Build the art_illumina command."""
     cmd = [
         "art_illumina",
+        "-ss",
+        profile or sequencing_system,
         "-i",
         str(ref_fasta),
         "-l",
@@ -102,8 +111,8 @@ def _build_art_command(
     if seed is not None:
         cmd.extend(["-rs", str(seed)])
 
-    if profile is not None:
-        cmd.extend(["-sp", profile])
+    if sam:
+        cmd.append("-sam")
 
     return cmd
 
@@ -146,6 +155,7 @@ def main(args):
         fragment_std=args.fragment_std,
         seed=args.seed,
         profile=args.profile,
+        sequencing_system=getattr(args, "sequencing_system", "HSXn"),
     )
 
     logger.info("Simulating Illumina reads with ART")

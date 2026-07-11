@@ -62,6 +62,7 @@ All examples below use the `pixi run` prefix. If you've activated the shell with
 |---|---|---|
 | `fastq` | Generate random FASTQ reads (no reference needed) | Built-in |
 | `te-insertion` | Insert transposable elements into a reference genome | TEvarSim |
+| `te-benchmark-panel` | Build mixed germline/somatic TE read panels | TEvarSim + ART |
 | `sv-placement` | Place structural variants in a reference genome | SURVIVOR |
 | `reads-illumina` | Simulate Illumina short reads from a reference | ART |
 | `reads-ont` | Simulate Oxford Nanopore long reads from a reference | PBSIM3 |
@@ -99,6 +100,27 @@ and `results/te_insertion/truth_te.vcf` (TE insertion truth set). With
 `--num-genomes 2`, `final_genome.fa` contains two haplotype records per
 chromosome and `truth_te_zygosity.tsv` labels each event as `homozygous`,
 `heterozygous`, or `absent`.
+
+### Germline and Somatic TE Benchmark Panel
+
+Create the catalog once, then generate individual coverage/replicate read sets:
+
+```bash
+pixi run simulate-data te-benchmark-panel \
+    --config config/somatic_mping_panel.toml \
+    --output results/somatic_mping_panel \
+    --stage catalog
+
+pixi run simulate-data te-benchmark-panel \
+    --config config/somatic_mping_panel.toml \
+    --output results/somatic_mping_panel \
+    --stage reads --coverage 30 --replicate 1
+```
+
+The default panel has 100 sites each for homozygous, heterozygous, and somatic
+insertions at 10%, 20%, and 40% cellular fraction. Somatic insertions occur on
+one homolog, giving expected read VAFs of 5%, 10%, and 20%. Coverage and event
+counts are configurable. See `docs/2026-07-10-somatic-te-benchmark-panel.md`.
 
 ### SV Placement Only
 

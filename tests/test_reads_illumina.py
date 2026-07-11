@@ -33,6 +33,7 @@ class TestRegisterParser:
         assert args.fragment_size == 300
         assert args.fragment_std == 30
         assert args.profile is None
+        assert args.sequencing_system == "HSXn"
         assert args.seed is None
 
     def test_register_parser_custom_values(self):
@@ -99,6 +100,7 @@ class TestMain:
         assert "-i" in cmd
         assert "-l" in cmd
         assert "-f" in cmd
+        assert cmd[cmd.index("-ss") + 1] == "HSXn"
         assert "-rs" in cmd  # seed flag
 
     @patch("simulate_data.modules.reads_illumina.check_tool_installed")
@@ -143,7 +145,7 @@ class TestMain:
         reads_illumina.main(ns)
 
         cmd = mock_run.call_args[0][0]
-        assert "-sp" in cmd
+        assert "-ss" in cmd
         assert "HiSeq" in cmd
 
     def test_main_invalid_read_length(self):
