@@ -7,7 +7,9 @@ these are helpers rather than a user-facing simulation module.
 
 from __future__ import annotations
 
+import gzip
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -138,3 +140,45 @@ def build_pbsim_command(
     if platform.pass_num > 1:
         cmd.extend(["--pass-num", str(platform.pass_num)])
     return cmd
+
+
+def contig_name_for(ref_path: Path) -> str:
+    """Return the contig name recorded in a PBSIM3 ``.ref`` file.
+
+    PBSIM3 names the MAF source ``ref`` rather than the contig, so contig
+    identity has to be recovered from the sibling ``.ref`` file's header.
+    """
+    with ref_path.open() as handle:
+        header = handle.readline().strip()
+    if not header.startswith(">"):
+        raise ValueError(f"Not a FASTA header in {ref_path}: {header!r}")
+    return header[1:].split()[0]
+
+
+def iter_maf_alignments(maf_path: Path) -> Iterator[tuple[int, int]]:
+    """Yield ``(start, end)`` reference spans from a PBSIM3 MAF file.
+
+    Fields are ``s <src> <start> <size> <strand> <srcSize> <seq>`` with a
+    0-based start and a size counting only non-gap characters, so the span is
+    the direct analogue of pysam's ``reference_start``/``reference_end``.
+    Only the first ``s`` line of each block -- the reference -- is used.
+    """
+    with gzip.open(maf_path, "rt") as handle:
+        expect_reference = False
+        for line in handle:
+            if line.startswith("a"):
+                expect_reference = True
+                continue
+            if not expect_reference or not line.startswith("s "):
+                continue
+            fields = line.split()
+            start, size, strand, src_size = (
+                int(fields[2]),
+                int(fields[3]),
+                fields[4],
+                int(fields[5]),
+            )
+            if strand == "-":
+                start = src_size - start - size
+            yield start, start + size
+            expect_reference = False

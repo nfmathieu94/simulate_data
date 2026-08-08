@@ -7,6 +7,8 @@ import pytest
 from simulate_data.longread import (
     PLATFORMS,
     build_pbsim_command,
+    contig_name_for,
+    iter_maf_alignments,
     resolve_model_path,
 )
 
@@ -99,3 +101,42 @@ class TestBuildPbsimCommand:
     def test_hifi_is_flagged_as_needing_ccs(self):
         assert PLATFORMS["hifi"].needs_ccs is True
         assert PLATFORMS["ont-hq"].needs_ccs is False
+
+
+def _write_maf(path, blocks):
+    """Write a PBSIM3-shaped MAF: the reference 's' line is named 'ref'."""
+    with gzip.open(path, "wt") as handle:
+        for start, size, strand, src_size in blocks:
+            handle.write("a\n")
+            handle.write(f"s ref {start} {size} {strand} {src_size} ACGT\n")
+            handle.write(f"s S1_1 0 {size} + {size} ACGT\n\n")
+
+
+class TestMafParsing:
+    """PBSIM3 names the MAF source 'ref', so contig identity is external."""
+
+    def test_contig_name_comes_from_ref_file(self, tmp_path):
+        (tmp_path / "p_0001.ref").write_text(">Chr1 some description\nACGT\n")
+        assert contig_name_for(tmp_path / "p_0001.ref") == "Chr1"
+
+    def test_non_fasta_ref_file_is_rejected(self, tmp_path):
+        (tmp_path / "p_0001.ref").write_text("ACGT\n")
+        with pytest.raises(ValueError, match="FASTA header"):
+            contig_name_for(tmp_path / "p_0001.ref")
+
+    def test_iter_maf_yields_forward_spans(self, tmp_path):
+        maf = tmp_path / "p_0001.maf.gz"
+        _write_maf(maf, [(100, 50, "+", 1000)])
+        assert list(iter_maf_alignments(maf)) == [(100, 150)]
+
+    def test_iter_maf_converts_reverse_strand_coordinates(self, tmp_path):
+        maf = tmp_path / "p_0001.maf.gz"
+        # On the minus strand, start is measured from the reverse strand:
+        # true start = 1000 - 100 - 50.
+        _write_maf(maf, [(100, 50, "-", 1000)])
+        assert list(iter_maf_alignments(maf)) == [(850, 900)]
+
+    def test_iter_maf_ignores_read_lines(self, tmp_path):
+        maf = tmp_path / "p_0001.maf.gz"
+        _write_maf(maf, [(0, 10, "+", 100), (20, 10, "+", 100)])
+        assert list(iter_maf_alignments(maf)) == [(0, 10), (20, 30)]
