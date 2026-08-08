@@ -5,10 +5,12 @@ import gzip
 import pytest
 
 from simulate_data.longread import (
+    GZIP_LEVEL,
     PLATFORMS,
     build_pbsim_command,
     contig_name_for,
     iter_maf_alignments,
+    pool_fastq_gz,
     resolve_model_path,
 )
 
@@ -140,3 +142,43 @@ class TestMafParsing:
         maf = tmp_path / "p_0001.maf.gz"
         _write_maf(maf, [(0, 10, "+", 100), (20, 10, "+", 100)])
         assert list(iter_maf_alignments(maf)) == [(0, 10), (20, 30)]
+
+
+class TestPooling:
+    """Pooling is gzip-to-gzip: no uncompressed FASTQ is ever written."""
+
+    def test_pooling_prefixes_names_and_counts_reads(self, tmp_path):
+        source = tmp_path / "in.fq.gz"
+        with gzip.open(source, "wt") as handle:
+            handle.write("@S1_1\nACGT\n+\nIIII\n@S1_2 note\nTTTT\n+\nIIII\n")
+        out = tmp_path / "out.fastq.gz"
+        with gzip.open(out, "wt", compresslevel=GZIP_LEVEL) as dest:
+            assert pool_fastq_gz(source, dest, "sampleA:baseline:h1:s42") == 2
+        with gzip.open(out, "rt") as handle:
+            text = handle.read()
+        assert text.startswith("@sampleA:baseline:h1:s42:S1_1\n")
+        assert "@sampleA:baseline:h1:s42:S1_2 note\n" in text
+        assert "ACGT\n+\nIIII\n" in text
+
+    def test_pooling_rejects_truncated_fastq(self, tmp_path):
+        source = tmp_path / "in.fq.gz"
+        with gzip.open(source, "wt") as handle:
+            handle.write("@S1_1\nACGT\n+\n")
+        out = tmp_path / "out.fastq.gz"
+        with gzip.open(out, "wt", compresslevel=GZIP_LEVEL) as dest:
+            with pytest.raises(ValueError, match="Truncated FASTQ"):
+                pool_fastq_gz(source, dest, "p")
+
+    def test_pooling_makes_colliding_names_unique(self, tmp_path):
+        """Every component emits S1_1; the prefix is what disambiguates."""
+        names = []
+        for component in ("baseline", "clone40"):
+            source = tmp_path / f"{component}.fq.gz"
+            with gzip.open(source, "wt") as handle:
+                handle.write("@S1_1\nACGT\n+\nIIII\n")
+            out = tmp_path / f"{component}.out.gz"
+            with gzip.open(out, "wt", compresslevel=GZIP_LEVEL) as dest:
+                pool_fastq_gz(source, dest, f"cov5x_rep1:{component}:h1:s1")
+            with gzip.open(out, "rt") as handle:
+                names.append(handle.readline().strip())
+        assert len(set(names)) == 2

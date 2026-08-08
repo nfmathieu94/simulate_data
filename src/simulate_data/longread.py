@@ -182,3 +182,38 @@ def iter_maf_alignments(maf_path: Path) -> Iterator[tuple[int, int]]:
                 start = src_size - start - size
             yield start, start + size
             expect_reference = False
+
+
+# Matches PANEL/pipeline/fastq_compression.py so both panels compress alike.
+GZIP_LEVEL = 6
+
+
+def pool_fastq_gz(source: Path, destination, prefix: str) -> int:
+    """Append a gzipped FASTQ into an open gzip stream, prefixing read names.
+
+    Read names collide across components -- every PBSIM3 run emits ``S1_1``,
+    ``S1_2``, ... -- so the prefix is what makes pooled names unique. Nothing
+    is decompressed to disk.
+    """
+    count = 0
+    with gzip.open(source, "rt") as handle:
+        while True:
+            header = handle.readline()
+            if not header:
+                break
+            seq, plus, qual = (
+                handle.readline(),
+                handle.readline(),
+                handle.readline(),
+            )
+            if not qual:
+                raise ValueError(f"Truncated FASTQ: {source}")
+            token, *rest = header.rstrip().split(maxsplit=1)
+            destination.write(
+                f"@{prefix}:{token[1:]}" + (f" {rest[0]}" if rest else "") + "\n"
+            )
+            destination.write(seq)
+            destination.write(plus)
+            destination.write(qual)
+            count += 1
+    return count
