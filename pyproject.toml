@@ -52,6 +52,9 @@ test = { cmd = "pytest tests/ -v" }
 lint = { cmd = "ruff check src/ tests/" }
 format = { cmd = "black src/ tests/" }
 
+[tool.pytest.ini_options]
+markers = ["slow: exercises real external tools (pbsim/ccs)"]
+
 [tool.ruff]
 line-length = 88
 

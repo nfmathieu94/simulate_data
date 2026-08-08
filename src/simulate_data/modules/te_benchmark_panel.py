@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
 import json
 import logging
+import os
 import random
 import shutil
 import tempfile
@@ -20,6 +22,17 @@ import tomllib
 from Bio import SeqIO
 from Bio.Seq import Seq
 
+from simulate_data.longread import (
+    GZIP_LEVEL,
+    build_pbsim_command,
+    contig_name_for,
+    iter_maf_alignments,
+    pool_fastq_gz,
+    run_ccs,
+)
+from simulate_data.longread import (
+    PLATFORMS as LONG_READ_PLATFORMS,
+)
 from simulate_data.modules.reads_illumina import _build_art_command
 from simulate_data.modules.te_insertion import (
     _build_terandom_command,
@@ -480,14 +493,10 @@ def _load_component_coordinates(path: Path) -> dict[tuple[str, int], list[dict]]
     return result
 
 
-def _count_origin_support(
-    sam_path: Path,
-    coordinate_rows: list[dict],
-    truth: dict[str, dict],
-    counts: dict[str, list[int]],
-    margin: int = 5,
-) -> None:
-    """Count exact ART-origin insertion junctions and reference spanners."""
+def _build_coordinate_index(
+    coordinate_rows: list[dict], truth: dict[str, dict]
+) -> dict[str, tuple[list[int], list[tuple[int, str, bool]]]]:
+    """Index insertion junctions per contig for span queries."""
     entries: dict[str, list[tuple[int, str, bool]]] = defaultdict(list)
     for row in coordinate_rows:
         coordinate = row["coordinate"]
@@ -502,26 +511,74 @@ def _count_origin_support(
     for chrom, rows in entries.items():
         rows.sort(key=lambda item: item[0])
         by_chrom[chrom] = ([item[0] for item in rows], rows)
+    return by_chrom
 
-    with pysam.AlignmentFile(sam_path, "r") as sam:
-        for record in sam.fetch(until_eof=True):
-            if record.is_unmapped or record.reference_end is None:
+
+def _tally_spans(
+    spans,
+    by_chrom: dict[str, tuple[list[int], list[tuple[int, str, bool]]]],
+    counts: dict[str, list[int]],
+    margin: int = 5,
+) -> None:
+    """Tally insertion-supporting and reference-spanning reads over spans.
+
+    Each event is counted at most once per read, so a long read crossing
+    both junctions of the same insertion still contributes a single count.
+    """
+    for chrom, start, end in spans:
+        chrom_index = by_chrom.get(chrom)
+        if chrom_index is None:
+            continue
+        positions, indexed = chrom_index
+        left = bisect_left(positions, start + margin)
+        right = bisect_right(positions, end - margin)
+        seen: set[str] = set()
+        for _coordinate, event_id, is_present in indexed[left:right]:
+            if event_id in seen:
                 continue
-            chrom = sam.get_reference_name(record.reference_id)
-            chrom_index = by_chrom.get(chrom)
-            if chrom_index is None:
-                continue
-            positions, indexed = chrom_index
-            start = record.reference_start
-            end = record.reference_end
-            left = bisect_left(positions, start + margin)
-            right = bisect_right(positions, end - margin)
-            seen: set[str] = set()
-            for _coordinate, event_id, is_present in indexed[left:right]:
-                if event_id in seen:
+            counts[event_id][0 if is_present else 1] += 1
+            seen.add(event_id)
+
+
+def _count_origin_support(
+    sam_path: Path,
+    coordinate_rows: list[dict],
+    truth: dict[str, dict],
+    counts: dict[str, list[int]],
+    margin: int = 5,
+) -> None:
+    """Count exact ART-origin insertion junctions and reference spanners."""
+    by_chrom = _build_coordinate_index(coordinate_rows, truth)
+
+    def _spans():
+        with pysam.AlignmentFile(sam_path, "r") as sam:
+            for record in sam.fetch(until_eof=True):
+                if record.is_unmapped or record.reference_end is None:
                     continue
-                counts[event_id][0 if is_present else 1] += 1
-                seen.add(event_id)
+                yield (
+                    sam.get_reference_name(record.reference_id),
+                    record.reference_start,
+                    record.reference_end,
+                )
+
+    _tally_spans(_spans(), by_chrom, counts, margin)
+
+
+def _count_origin_support_maf(
+    spans,
+    coordinate_rows: list[dict],
+    truth: dict[str, dict],
+    counts: dict[str, list[int]],
+    margin: int = 5,
+) -> None:
+    """Count PBSIM3-origin junctions and reference spanners from MAF spans.
+
+    PBSIM3 emits no SAM, so long-read origin support comes from MAF
+    ``(contig, start, end)`` tuples rather than alignment records. The
+    tallying logic is otherwise identical to the short-read path.
+    """
+    by_chrom = _build_coordinate_index(coordinate_rows, truth)
+    _tally_spans(spans, by_chrom, counts, margin)
 
 
 def _write_observed_support(
@@ -687,6 +744,207 @@ def _simulate_reads(
         writer.writerows(rows)
     _write_observed_support(sample_dir / "observed_support.tsv", truth, support_counts)
     (sample_dir / ".complete").touch()
+    (control_dir / ".complete").touch()
+
+
+def _pbsim_contig_outputs(prefix: Path) -> list[tuple[Path, Path, Path | None]]:
+    """Collect PBSIM3's per-contig outputs in contig order.
+
+    PBSIM3 writes one output set per contig as ``<prefix>_0001.*``. Returns
+    ``(ref, maf, reads_or_bam)`` triples; the third element is the .fq.gz for
+    single-pass runs and the subread .bam for multi-pass runs.
+    """
+    outputs = []
+    for ref in sorted(prefix.parent.glob(f"{prefix.name}_*.ref")):
+        # Build sibling names by string, not Path.with_suffix: component
+        # prefixes contain dots (e.g. "baseline.hap1"), so with_suffix would
+        # strip part of the prefix rather than the ".ref" extension.
+        stem = str(ref)[: -len(".ref")]
+        maf = Path(stem + ".maf.gz")
+        if not maf.is_file():
+            raise FileNotFoundError(f"PBSIM3 MAF missing for {ref}")
+        fastq = Path(stem + ".fq.gz")
+        bam = Path(stem + ".bam")
+        payload = fastq if fastq.is_file() else (bam if bam.is_file() else None)
+        if payload is None:
+            raise FileNotFoundError(f"PBSIM3 produced no reads for {ref}")
+        outputs.append((ref, maf, payload))
+    if not outputs:
+        raise FileNotFoundError(f"PBSIM3 produced no output for prefix {prefix}")
+    return outputs
+
+
+def _simulate_long_reads(
+    settings: dict,
+    output: Path,
+    coverage: float,
+    replicate: int,
+    platform_key: str,
+) -> None:
+    """Simulate one long-read sample as a mixture of the component genomes.
+
+    Mirrors :func:`_simulate_reads`: same components, same seed derivation,
+    same manifest and QC schema. Differs in being single-end, deriving origin
+    support from MAF rather than SAM, and writing gzip throughout.
+    """
+    if not (output / ".catalog.complete").exists():
+        raise FileNotFoundError("Catalog is incomplete; run --stage catalog first")
+    if platform_key not in LONG_READ_PLATFORMS:
+        raise ValueError(
+            f"Unknown long-read platform: {platform_key}; "
+            f"choose from {', '.join(sorted(LONG_READ_PLATFORMS))}"
+        )
+    platform = LONG_READ_PLATFORMS[platform_key]
+    check_tool_installed("pbsim")
+    if platform.needs_ccs:
+        check_tool_installed("ccs")
+
+    threads = int(os.environ.get("SLURM_CPUS_PER_TASK", "1"))
+    min_yield = float(settings.get("min_ccs_yield", 0.5))
+
+    sample = f"cov{coverage:g}x_rep{replicate}"
+    sample_dir = output / "reads" / platform_key / sample
+    if (sample_dir / ".complete").exists():
+        logger.info("Read set already complete: %s", sample_dir)
+        return
+    if sample_dir.exists() and any(sample_dir.iterdir()):
+        raise FileExistsError(f"Refusing incomplete read-set directory: {sample_dir}")
+    sample_dir.mkdir(parents=True, exist_ok=True)
+
+    truth = _load_truth_events(output / "truth_events.tsv")
+    coordinates = _load_component_coordinates(output / "component_coordinates.tsv")
+    support_counts = defaultdict(lambda: [0, 0])
+    rows = []
+
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        gzip.open(
+            sample_dir / "reads.fastq.gz", "wt", compresslevel=GZIP_LEVEL
+        ) as pooled,
+    ):
+        tmpdir = Path(tmp)
+        for component_index, (component, weight, _classes) in enumerate(COMPONENTS):
+            for hap in (1, 2):
+                component_cov = coverage * weight / 2
+                seed = _seed(
+                    settings["seed"], coverage, replicate, component_index, hap
+                )
+                prefix = tmpdir / f"{component}.hap{hap}"
+                run_command(
+                    build_pbsim_command(
+                        platform,
+                        output / "genomes" / f"{component}.hap{hap}.fa",
+                        component_cov,
+                        prefix,
+                        seed,
+                    )
+                )
+
+                name_prefix = f"{sample}:{component}:h{hap}:s{seed}"
+                reads_written = 0
+                yields = []
+                for ref, maf, payload in _pbsim_contig_outputs(prefix):
+                    contig = contig_name_for(ref)
+                    _count_origin_support_maf(
+                        (
+                            (contig, start, end)
+                            for start, end in iter_maf_alignments(maf)
+                        ),
+                        coordinates[(component, hap)],
+                        truth,
+                        support_counts,
+                    )
+                    if payload.suffix == ".bam":
+                        fastq = Path(str(payload)[: -len(".bam")] + ".fastq.gz")
+                        stats = run_ccs(payload, fastq, threads, min_yield)
+                        yields.append(stats["yield_fraction"])
+                        payload.unlink()
+                    else:
+                        fastq = payload
+                    reads_written += pool_fastq_gz(fastq, pooled, name_prefix)
+
+                rows.append(
+                    (
+                        sample,
+                        platform_key,
+                        component,
+                        weight,
+                        hap,
+                        f"{component_cov:g}",
+                        seed,
+                        reads_written,
+                        f"{sum(yields) / len(yields):.4f}" if yields else "NA",
+                    )
+                )
+
+    _simulate_long_read_control(
+        settings, output, coverage, replicate, platform, threads, min_yield
+    )
+
+    with open(sample_dir / "component_manifest.tsv", "w", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(
+            (
+                "sample",
+                "platform",
+                "component",
+                "cell_fraction",
+                "haplotype",
+                "pbsim_coverage",
+                "seed",
+                "reads",
+                "ccs_yield",
+            )
+        )
+        writer.writerows(rows)
+    _write_observed_support(sample_dir / "observed_support.tsv", truth, support_counts)
+    (sample_dir / ".complete").touch()
+
+
+def _simulate_long_read_control(
+    settings: dict,
+    output: Path,
+    coverage: float,
+    replicate: int,
+    platform,
+    threads: int,
+    min_yield: float,
+) -> None:
+    """Simulate the matched reference-only control for a long-read sample."""
+    sample = f"cov{coverage:g}x_rep{replicate}"
+    control_dir = output / "reads" / platform.key / f"{sample}_reference_control"
+    if (control_dir / ".complete").exists():
+        return
+    if control_dir.exists() and any(control_dir.iterdir()):
+        raise FileExistsError(f"Refusing incomplete control directory: {control_dir}")
+    control_dir.mkdir(parents=True, exist_ok=True)
+
+    control_seed = _seed(settings["seed"], coverage, replicate, 99, 1)
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        gzip.open(
+            control_dir / "reads.fastq.gz", "wt", compresslevel=GZIP_LEVEL
+        ) as pooled,
+    ):
+        prefix = Path(tmp) / "control"
+        run_command(
+            build_pbsim_command(
+                platform,
+                output / "genomes" / "reference.fa",
+                coverage,
+                prefix,
+                control_seed,
+            )
+        )
+        name_prefix = f"{sample}:control:s{control_seed}"
+        for _ref, _maf, payload in _pbsim_contig_outputs(prefix):
+            if payload.suffix == ".bam":
+                fastq = Path(str(payload)[: -len(".bam")] + ".fastq.gz")
+                run_ccs(payload, fastq, threads, min_yield)
+                payload.unlink()
+            else:
+                fastq = payload
+            pool_fastq_gz(fastq, pooled, name_prefix)
     (control_dir / ".complete").touch()
 
 
