@@ -4,7 +4,30 @@ import gzip
 
 import pytest
 
-from simulate_data.longread import resolve_model_path
+from simulate_data.longread import (
+    PLATFORMS,
+    build_pbsim_command,
+    resolve_model_path,
+)
+
+
+@pytest.fixture
+def model_dir(tmp_path, monkeypatch):
+    """A fake CONDA_PREFIX/data holding every shipped PBSIM3 model."""
+    data = tmp_path / "data"
+    data.mkdir()
+    for name in (
+        "QSHMM-ONT",
+        "QSHMM-ONT-HQ",
+        "QSHMM-RSII",
+        "ERRHMM-ONT",
+        "ERRHMM-ONT-HQ",
+        "ERRHMM-RSII",
+        "ERRHMM-SEQUEL",
+    ):
+        (data / f"{name}.model").write_text("x")
+    monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+    return data
 
 
 class TestResolveModelPath:
@@ -41,3 +64,38 @@ class TestResolveModelPath:
         monkeypatch.delenv("CONDA_PREFIX", raising=False)
         with pytest.raises(RuntimeError, match="CONDA_PREFIX"):
             resolve_model_path("QSHMM-ONT")
+
+
+class TestBuildPbsimCommand:
+    """Platform presets must select the right method, model, and error profile."""
+
+    def test_ont_hq_uses_qshmm_and_ont_difference_ratio(self, tmp_path, model_dir):
+        cmd = build_pbsim_command(
+            PLATFORMS["ont-hq"], tmp_path / "g.fa", 10.0, tmp_path / "out", seed=7
+        )
+        assert cmd[0] == "pbsim"
+        assert cmd[cmd.index("--method") + 1] == "qshmm"
+        assert cmd[cmd.index("--qshmm") + 1] == str(model_dir / "QSHMM-ONT-HQ.model")
+        assert cmd[cmd.index("--difference-ratio") + 1] == "39:24:36"
+        assert cmd[cmd.index("--seed") + 1] == "7"
+        assert "--pass-num" not in cmd
+
+    def test_hifi_uses_errhmm_and_multipass(self, tmp_path, model_dir):
+        cmd = build_pbsim_command(
+            PLATFORMS["hifi"], tmp_path / "g.fa", 10.0, tmp_path / "out", seed=7
+        )
+        assert cmd[cmd.index("--method") + 1] == "errhmm"
+        assert cmd[cmd.index("--errhmm") + 1] == str(model_dir / "ERRHMM-SEQUEL.model")
+        assert cmd[cmd.index("--difference-ratio") + 1] == "22:45:33"
+        assert cmd[cmd.index("--pass-num") + 1] == "10"
+
+    def test_depth_is_formatted_without_exponent(self, tmp_path, model_dir):
+        """PBSIM3 cannot parse scientific notation."""
+        cmd = build_pbsim_command(
+            PLATFORMS["ont-hq"], tmp_path / "g.fa", 0.0000005, tmp_path / "out", seed=1
+        )
+        assert "e-" not in cmd[cmd.index("--depth") + 1]
+
+    def test_hifi_is_flagged_as_needing_ccs(self):
+        assert PLATFORMS["hifi"].needs_ccs is True
+        assert PLATFORMS["ont-hq"].needs_ccs is False
