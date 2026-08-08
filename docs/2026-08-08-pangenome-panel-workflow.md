@@ -1,0 +1,149 @@
+# Pangenome TE panel — Phase 1 workflow record
+
+**Date:** 2026-08-08 America/Los_Angeles
+
+## Purpose
+
+Build four TE-augmented rice Chr1 genomes as ground truth for RelocaTE3
+multi-FASTA support, and later pangenome-graph support.
+
+## Current status: Phase 1 COMPLETE
+
+300 events across all 15 sharing patterns; 160 insertions per genome. All
+verification checks pass. **No reads simulated and no graph built**, per the
+agreed scope.
+
+| Stage | Job | Elapsed |
+|---|---|---|
+| Download (4 assemblies, MD5-verified) | 27293618 | 5:45 |
+| Chr1 extraction + PanSN rename | 27293652 | 3:21 |
+| Orthology (minimap2 asm5 + liftover) | 27293809 | 4:00 |
+| Background TE annotation (RepeatMasker array) | 27293793 | 7:00–9:49 |
+| Panel build | 27293818 | 0:25 |
+
+## Results
+
+**Chr1 lengths — the reason orthology is a pipeline stage:**
+
+| Genome | Chr1 length | vs Nipponbare |
+|---|---|---|
+| Nipponbare | 43,270,923 | — |
+| Azucena | 44,011,168 | +740 kb |
+| IR64 | 44,350,042 | +1.08 Mb |
+| N22 | 42,787,722 | −483 kb |
+
+**Syntenic coverage (blocks ≥50 kb, fraction of Nipponbare Chr1):**
+
+| Pair | Syntenic fraction |
+|---|---|
+| Nipponbare → Azucena | 0.9018 |
+| Nipponbare → N22 | 0.7044 |
+| Nipponbare → IR64 | 0.6411 |
+
+**IR64 gates anchor yield, not N22** — the prediction in the design doc was
+wrong. This is consistent with the deep indica/japonica (XI/GJ) split being
+the primary division in cultivated rice; aus sits closer to japonica than
+indica does by syntenic block coverage.
+
+**Anchor acceptance — the headline diagnostic:**
+
+```
+candidates_sampled      5915
+rejected_unlifted       3136
+rejected_multimapping      0
+rejected_background_te     0
+accepted                2779   (47.0%)
+needed                   300
+```
+
+47% acceptance yields 2779 usable anchors against 300 needed, so no
+relaxation of the orthology filter was necessary. Zero multi-mapping
+rejections indicates `paftools.js` defaults (`-l 50000 -q 5`) already exclude
+ambiguous regions before our own check.
+
+Zero background-TE rejections is a real result, not a dead filter: family
+names were confirmed to match (262 of 300 truth families appear in the
+annotation), and the filter was verified to reject inside a real element and
+within its 1 kb buffer while passing when clear. With ~20 elements per family
+over 43 Mb, expected collisions across 300 events are ≈1.
+
+**Panel:**
+
+| Genome | Insertions | Length before → after | Delta |
+|---|---|---|---|
+| Nipponbare | 160 | 43,270,923 → 43,545,687 | +274,764 |
+| Azucena | 160 | 44,011,168 → 44,271,831 | +260,663 |
+| IR64 | 160 | 44,350,042 → 44,601,971 | +251,929 |
+| N22 | 160 | 42,787,722 → 43,069,227 | +281,505 |
+
+Every delta equals the sum of inserted TE plus TSD lengths exactly.
+
+Pattern distribution: 80 private, 120 pairwise, 80 triple, 20 core. All 10 TE
+groups appear in every one of the 15 patterns, so TE family and sharing
+pattern are fully decorrelated.
+
+## Failures / issues found
+
+1. **`short` partition caps at 2 h**, not 4. Download script adjusted.
+2. **RepeatMasker defaulted to the HMMER engine**, which cannot `hmmpress` a
+   nucleotide library: `Error invoking hmmpress on rice7.0.0.liban`. Fixed
+   with `-engine rmblast` (the engine GraffiTE also uses). RepeatMasker also
+   drops `RM_*` working directories into the CWD, so it now runs from scratch.
+3. **`paftools.js liftover` requires the `cg` (CIGAR) tag**, which
+   `minimap2 -x asm5 --cs` does not emit. Failed with
+   `unable to find the 'cg' tag`. Fixed by adding `-c`.
+4. **`paftools.js liftover` discards the input BED name**, rewriting column 4
+   as `<query_chrom>_<start>_<end>`. Anchors keyed by name matched nothing, so
+   the first successful run reported 0/5915 accepted. Fixed by keying on the
+   original reference coordinate. The unit test had encoded the assumed
+   format, so it passed while the code was wrong — the test now uses real
+   paftools output.
+5. **The background-TE filter was dead code** on first write: it was tested
+   but never called, because the TE family is not known until assignment. It
+   now runs in the assignment loop.
+
+## Decisions / logic
+
+- **IRGSP-1.0 downloaded rather than reusing local MSU_r7.fa.** Different
+  Nipponbare assemblies; mixing sources would confound assembly differences
+  with biological divergence.
+- **Anchors chosen in Nipponbare and lifted**, accepted only on a 1:1 lift to
+  all four genomes. Verified working: core event PGTE000281 sits at
+  32,025,584 / 32,783,537 / 33,412,435 / 31,855,575 across the four genomes —
+  naive same-coordinate placement would have been wrong by ~1.4 Mb.
+- **RepeatMasker + riceTElib instead of EDTA/panEDTA.** Phase 1 only needs to
+  know where riceTElib families already sit; de-novo annotation of four
+  genomes would dominate runtime.
+- **PanSN naming applied at extraction**, verified preserved through
+  augmentation (`>Nipponbare#1#Chr1` etc.).
+
+## Commands
+
+```bash
+# Whole chain
+bash pipeline/make_pangenome_panel/submit.sh
+
+# Anchor yield only, no genomes written
+module load minimap2/2.30
+pixi run --manifest-path /rhome/nmath020/bigdata/github/github_tools/data_sim/simulate_data/pyproject.toml \
+  python pipeline/make_pangenome_panel/05_build_pangenome_panel.py \
+  --config config/pangenome_panel.toml \
+  --output results/pangenome_panel --validate-only
+
+# Tests (25)
+pixi run --manifest-path /rhome/nmath020/bigdata/github/github_tools/data_sim/simulate_data/pyproject.toml \
+  python -m unittest -v pipeline.make_pangenome_panel.test_build_pangenome_panel
+```
+
+## Next steps
+
+1. **Phase 2:** 5th Nipponbare-derived sample genome carrying a mix of
+   panel-matching insertions (→ reference, with known attribution) and novel
+   insertions (→ non-reference), deliberately omitting some panel TEs to test
+   over-calling; then read simulation reusing the existing panel machinery.
+2. **Wire RelocaTE3 multi-FASTA support** and score against
+   `truth_events.tsv` / `sharing_matrix.tsv`.
+3. **Phase 3:** Minigraph-Cactus graph (`module load cactus/3.2.0`), vg
+   Giraffe mapping, GraffiTE as comparison baseline.
+4. Consider scaling beyond Chr1 once the approach is validated; 2779 accepted
+   anchors on Chr1 alone suggests headroom for a much larger event count.
