@@ -98,6 +98,9 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
 
         reads_pacbio.main(ns)
@@ -113,8 +116,14 @@ class TestMain:
 
     @patch("simulate_data.modules.reads_pacbio.check_tool_installed")
     @patch("simulate_data.modules.reads_pacbio.run_command")
-    def test_main_hifi_mode(self, mock_run, mock_check, tmp_path):
+    @patch("simulate_data.modules.reads_pacbio.run_ccs")
+    def test_main_hifi_mode(self, mock_ccs, mock_run, mock_check, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_ccs.return_value = {
+            "zmws_input": 10,
+            "zmws_passed": 9,
+            "yield_fraction": 0.9,
+        }
 
         ns = argparse.Namespace(
             ref=str(MINI_GENOME),
@@ -127,7 +136,16 @@ class TestMain:
             pass_num=15,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
+
+        # run_command is mocked, so PBSIM3 writes no subread BAM. Create one
+        # so the ccs stage has an input to consume.
+        output_dir = Path(ns.output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "pacbio_reads_0001.bam").write_bytes(b"")
 
         reads_pacbio.main(ns)
 
@@ -136,6 +154,8 @@ class TestMain:
         # HiFi mode should include --pass-num
         assert "--pass-num" in cmd
         assert "15" in cmd
+        # ...and must collapse subreads into consensus reads.
+        mock_ccs.assert_called_once()
 
     @patch("simulate_data.modules.reads_pacbio.check_tool_installed")
     @patch("simulate_data.modules.reads_pacbio.run_command")
@@ -153,6 +173,9 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
 
         reads_pacbio.main(ns)
@@ -172,6 +195,9 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
         with pytest.raises(ValueError, match="coverage must be positive"):
             reads_pacbio.main(ns)
@@ -188,6 +214,9 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
         with pytest.raises(ValueError, match="read-length must be positive"):
             reads_pacbio.main(ns)
@@ -204,6 +233,9 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
         with pytest.raises(ValueError, match="read-std must be non-negative"):
             reads_pacbio.main(ns)
@@ -220,8 +252,11 @@ class TestMain:
             pass_num=0,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
-        with pytest.raises(ValueError, match="pass-num must be positive"):
+        with pytest.raises(ValueError, match="pass-num must be greater than 1"):
             reads_pacbio.main(ns)
 
     def test_main_missing_ref(self):
@@ -236,6 +271,69 @@ class TestMain:
             pass_num=10,
             error_model="QSHMM-RSII",
             qscore_model=None,
+            difference_ratio=None,
+            threads=1,
+            min_ccs_yield=0.5,
         )
         with pytest.raises(FileNotFoundError):
             reads_pacbio.main(ns)
+
+
+class TestModelResolutionAndHiFi:
+    """PBSIM3 rejects bare model names; HiFi needs multiple passes plus ccs."""
+
+    def test_command_uses_resolved_model_path(self, tmp_path, monkeypatch):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "QSHMM-RSII.model").write_text("x")
+        monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+
+        cmd = reads_pacbio._build_pbsim3_pacbio_command(
+            ref_fasta=tmp_path / "ref.fa",
+            coverage=5.0,
+            output_prefix=str(tmp_path / "out"),
+            error_model="QSHMM-RSII",
+        )
+
+        assert cmd[cmd.index("--qshmm") + 1] == str(data / "QSHMM-RSII.model")
+        assert "QSHMM-RSII" not in cmd, "bare model name must not be passed"
+
+    def test_hifi_switches_to_errhmm_sequel(self, tmp_path, monkeypatch):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "ERRHMM-SEQUEL.model").write_text("x")
+        monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+
+        cmd = reads_pacbio._build_pbsim3_pacbio_command(
+            ref_fasta=tmp_path / "ref.fa",
+            coverage=5.0,
+            output_prefix=str(tmp_path / "out"),
+            read_type="HiFi",
+        )
+
+        assert cmd[cmd.index("--method") + 1] == "errhmm"
+        assert cmd[cmd.index("--errhmm") + 1] == str(data / "ERRHMM-SEQUEL.model")
+        assert cmd[cmd.index("--difference-ratio") + 1] == "22:45:33"
+        assert cmd[cmd.index("--pass-num") + 1] == "10"
+
+    def test_clr_uses_rsii_difference_ratio(self, tmp_path, monkeypatch):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "QSHMM-RSII.model").write_text("x")
+        monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+
+        cmd = reads_pacbio._build_pbsim3_pacbio_command(
+            ref_fasta=tmp_path / "ref.fa",
+            coverage=5.0,
+            output_prefix=str(tmp_path / "out"),
+            read_type="CLR",
+        )
+
+        assert cmd[cmd.index("--difference-ratio") + 1] == "6:55:39"
+
+    def test_hifi_rejects_single_pass(self):
+        with pytest.raises(ValueError, match="pass-num"):
+            reads_pacbio._validate_hifi(1)
+
+    def test_hifi_accepts_multiple_passes(self):
+        reads_pacbio._validate_hifi(10)
