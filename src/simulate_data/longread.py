@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import gzip
 import os
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+
+from simulate_data.utils import check_tool_installed, run_command
 
 MODEL_NAMES = (
     "QSHMM-ONT",
@@ -217,3 +220,52 @@ def pool_fastq_gz(source: Path, destination, prefix: str) -> int:
             destination.write(qual)
             count += 1
     return count
+
+
+def parse_ccs_report(path: Path) -> dict:
+    """Extract ZMW yield statistics from a ccs report."""
+    text = path.read_text()
+
+    def _find(label: str) -> int:
+        match = re.search(rf"{label}\s*:\s*(\d+)", text)
+        if match is None:
+            raise ValueError(f"Missing '{label}' in ccs report: {path}")
+        return int(match.group(1))
+
+    total = _find("ZMWs input")
+    passed = _find("ZMWs pass filters")
+    return {
+        "zmws_input": total,
+        "zmws_passed": passed,
+        "yield_fraction": passed / total if total else 0.0,
+    }
+
+
+def run_ccs(
+    bam: Path,
+    output_fastq_gz: Path,
+    threads: int,
+    min_yield: float,
+) -> dict:
+    """Collapse a PBSIM3 subread BAM into HiFi reads with ccs.
+
+    ccs writes gzipped FASTQ directly, so nothing is decompressed to disk.
+    Yield is checked because silent under-coverage would later look like a
+    caller recall problem rather than a data-generation problem.
+    """
+    check_tool_installed("ccs")
+    run_command(["ccs", "--num-threads", str(threads), str(bam), str(output_fastq_gz)])
+
+    # ccs derives the report name from the output stem:
+    # sample.fastq.gz -> sample.ccs_report.txt
+    report = output_fastq_gz.with_suffix("").with_suffix(".ccs_report.txt")
+    if not report.is_file():
+        raise FileNotFoundError(f"ccs report not found beside {output_fastq_gz}")
+    stats = parse_ccs_report(report)
+    if stats["yield_fraction"] < min_yield:
+        raise RuntimeError(
+            f"ccs yield {stats['yield_fraction']:.3f} is below the floor "
+            f"{min_yield:.3f} for {bam}; delivered HiFi depth would fall well "
+            "short of the requested depth"
+        )
+    return stats

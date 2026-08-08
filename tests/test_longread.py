@@ -10,6 +10,7 @@ from simulate_data.longread import (
     build_pbsim_command,
     contig_name_for,
     iter_maf_alignments,
+    parse_ccs_report,
     pool_fastq_gz,
     resolve_model_path,
 )
@@ -182,3 +183,35 @@ class TestPooling:
             with gzip.open(out, "rt") as handle:
                 names.append(handle.readline().strip())
         assert len(set(names)) == 2
+
+
+CCS_REPORT = """ZMWs input               : 40
+
+ZMWs pass filters        : 37 (92.50%)
+ZMWs fail filters        : 3 (7.500%)
+"""
+
+
+class TestCcsReport:
+    """ccs yield is ~92.5%, so requested depth overstates delivered depth."""
+
+    def test_parse_ccs_report_extracts_yield(self, tmp_path):
+        path = tmp_path / "r.ccs_report.txt"
+        path.write_text(CCS_REPORT)
+        stats = parse_ccs_report(path)
+        assert stats["zmws_input"] == 40
+        assert stats["zmws_passed"] == 37
+        assert abs(stats["yield_fraction"] - 0.925) < 1e-9
+
+    def test_parse_ccs_report_handles_zero_input(self, tmp_path):
+        path = tmp_path / "r.ccs_report.txt"
+        path.write_text(
+            "ZMWs input               : 0\nZMWs pass filters        : 0 (0%)\n"
+        )
+        assert parse_ccs_report(path)["yield_fraction"] == 0.0
+
+    def test_parse_ccs_report_rejects_malformed(self, tmp_path):
+        path = tmp_path / "r.ccs_report.txt"
+        path.write_text("nothing useful here\n")
+        with pytest.raises(ValueError, match="ZMWs input"):
+            parse_ccs_report(path)
