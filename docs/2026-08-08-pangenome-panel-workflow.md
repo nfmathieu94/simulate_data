@@ -82,6 +82,38 @@ Pattern distribution: 80 private, 120 pairwise, 80 triple, 20 core. All 10 TE
 groups appear in every one of the 15 patterns, so TE family and sharing
 pattern are fully decorrelated.
 
+## Anchor bias measurement
+
+The orthology filter keeps 47% of candidates, so the panel's realism depends
+on how unrepresentative that 47% is. Measured against the Nipponbare
+background annotation (`orthology/anchor_bias.tsv`):
+
+| Metric (median) | Accepted | Rejected | Ratio |
+|---|---|---|---|
+| Distance to nearest TE (bp) | 123 | 20 | 6.15 |
+| TE count in 20 kb window | 19 | 21 | 0.90 |
+| TE-masked fraction of window | 0.318 | 0.400 | 0.79 |
+| Position on Chr1 (Mb) | 24.9 | 19.7 | 1.26 |
+
+| TE adjacency | Accepted | Rejected |
+|---|---|---|
+| Inside a TE | 37.0% | 47.3% |
+| Within 100 bp of a TE | 48.1% | 57.2% |
+| Within 1 kb of a TE | 79.3% | 85.0% |
+
+**Interpretation.** The bias is real but modest. Accepted anchors are not TE
+deserts: 37% sit inside an existing TE and 79% are within 1 kb of one, versus
+47% and 85% for rejected sites. The 6.15x median-distance ratio comes from the
+tail, not from wholesale exclusion of repeat-adjacent sites.
+
+The substantive exclusion is **structural, not repeat context**: the rejected
+53% are largely sites in non-syntenic regions, which also skew toward the Chr1
+centromere (median 19.7 Mb vs 24.9 Mb).
+
+Phase 1 therefore measures an optimistic bound, but a mildly optimistic one.
+Report it as an upper bound; the real-TE dataset proposed below is what
+brackets it from the realistic side.
+
 ## Failures / issues found
 
 1. **`short` partition caps at 2 h**, not 4. Download script adjusted.
@@ -146,4 +178,17 @@ pixi run --manifest-path /rhome/nmath020/bigdata/github/github_tools/data_sim/si
 3. **Phase 3:** Minigraph-Cactus graph (`module load cactus/3.2.0`), vg
    Giraffe mapping, GraffiTE as comparison baseline.
 4. Consider scaling beyond Chr1 once the approach is validated; 2779 accepted
-   anchors on Chr1 alone suggests headroom for a much larger event count.
+   anchors on Chr1 alone suggests headroom for a much larger event count. Note
+   the exhaustive sharing design does not scale in genome count: patterns go as
+   2^n - 1, so 8 genomes would need 255 patterns and 16 would need 65,535.
+   Beyond 4 genomes, switch to sampled or phylogeny-structured patterns.
+5. **Real-TE complement.** Hold out a real MAGIC16 genome, derive truth from
+   assembly-to-assembly comparison (minimap2 + SVIM-asm + RepeatMasker, i.e.
+   GraffiTE's assembly mode, which its own benchmarking found most reliable),
+   and simulate reads from it. Real positions, nesting, truncation and family
+   spectrum; high-confidence rather than exact truth. Brackets the synthetic
+   panel from the realistic side.
+6. **Toolkit goal.** The generic parts of this pipeline -- orthologous anchor
+   selection, sharing-pattern enumeration, multi-genome TE insertion, SV
+   placement -- are to migrate into `simulate_data` as a reusable pangenome
+   simulation module, so this is not a rice-only script.

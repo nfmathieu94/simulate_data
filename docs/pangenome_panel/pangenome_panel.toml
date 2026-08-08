@@ -61,3 +61,18 @@ background_te_buffer = 1000
 
 [download]
 base_url = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA"
+
+# Phase 2: the sample whose reads a caller actually sees. Derived from the
+# reference background so its coordinates stay interpretable.
+[sample]
+name = "SampleA"
+# Panel events the sample also carries -> expected call "reference", with the
+# carrying panel genomes as the attribution answer key.
+n_reference = 150
+# Novel insertions at anchors the panel never used, so the locus is empty in
+# every panel genome -> expected call "non_reference".
+n_non_reference = 100
+# The remaining 150 panel events are deliberately absent from the sample and
+# must produce no call at all; without them, a caller that reports every panel
+# event would score perfectly.
+seed = 1017

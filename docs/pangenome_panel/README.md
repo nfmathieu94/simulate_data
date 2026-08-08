@@ -12,8 +12,8 @@ Ground truth for two upcoming RelocaTE3 capabilities:
 2. **Pangenome graph support**, later, against a graph built from the same
    genomes.
 
-**Phase 1 (this directory) stops once the TE-augmented genomes exist.** No
-reads are simulated and no graph is built.
+Phase 1 builds the TE-augmented reference genomes; Phase 2 builds the sample
+and its reads. No pangenome graph is built yet.
 
 ## Design
 
@@ -138,20 +138,78 @@ silent acceptance.
 
 ## Caveats
 
-- **N22 (aus) is the most diverged** and will have the lowest liftover yield;
-  it gates the anchor count for the whole panel.
-- **Anchor attrition is expected**, particularly near the Chr1 centromere.
-  The acceptance rate in `anchor_acceptance.tsv` is the headline diagnostic.
+- **IR64 (indica) gates anchor yield**, not N22: measured syntenic fractions
+  are Azucena 0.902, N22 0.704, IR64 0.641. The deep indica/japonica split is
+  the primary division in cultivated rice.
+- **Anchor acceptance is 47%** (2779 of 5915), well above the 300 needed.
+  `anchor_acceptance.tsv` is the headline diagnostic.
+- **The accepted set is mildly optimistic, and it is measured** — see
+  `orthology/anchor_bias.tsv`. Accepted anchors sit a median 123 bp from the
+  nearest TE vs 20 bp for rejected, but they are not TE deserts: 37% lie
+  inside an existing TE and 79% within 1 kb (vs 47% and 85% rejected). The
+  substantive exclusion is structural (non-syntenic regions), not repeat
+  context. Treat Phase 1 numbers as an upper bound.
 - RepeatMasker against riceTElib is used instead of EDTA/panEDTA: Phase 1 only
   needs to know where riceTElib *families* already sit, and de-novo annotation
   of four genomes would dominate runtime.
 
-## Next phases
+## Phase 2: the sample
 
-- **Phase 2:** a 5th Nipponbare-derived sample genome carrying a mix of
-  panel-matching insertions (→ reference, with known attribution) and novel
-  insertions (→ non-reference), plus read simulation. Deliberately omits some
-  panel TEs to test over-calling.
+`results/pangenome_panel/sample/SampleA/` holds the genome whose reads a
+caller actually sees. It is derived from the reference background and carries
+three deliberately different event classes:
+
+| Class | Count | Expected call | Answer key |
+|---|---|---|---|
+| `reference` | 150 | `reference` | the panel genomes carrying that event |
+| `non_reference` | 100 | `non_reference` | — |
+| `absent` | 150 | **no call** | over-calling control |
+
+The `absent` class is the one that makes the benchmark honest: without it, a
+caller that simply reports every panel event would score perfectly.
+
+Both `reference` and `absent` are stratified across all 15 sharing patterns,
+so attribution is tested for every pattern and no pattern can vanish into one
+class.
+
+A subtlety worth knowing: a sample event may be `reference` by virtue of a
+genome *other* than the background it was derived from — e.g. an
+Azucena-only TE placed at the orthologous Nipponbare locus. `truth_events.tsv`
+records `-` for the non-carrying genome, so the sample builder takes those
+coordinates from the anchor map instead (`reference_position_for`).
+
+Build and simulate:
+
+```bash
+module load minimap2/2.30
+pixi run --manifest-path /rhome/nmath020/bigdata/github/github_tools/data_sim/simulate_data/pyproject.toml   python pipeline/make_pangenome_panel/06_build_sample_genome.py   --config config/pangenome_panel.toml --output results/pangenome_panel
+
+sbatch --array=0-2 pipeline/make_pangenome_panel/07_simulate_sample_reads.sh
+# task 0 Illumina, 1 ONT-HQ, 2 PacBio HiFi
+```
+
+Sample outputs:
+
+```
+sample/SampleA/
+├── SampleA.chr1.fa        PanSN: SampleA#1#Chr1
+├── sample_truth.tsv       per-event expected_call + expected_genomes
+├── run_metadata.json
+├── .complete
+└── reads/{illumina,ont-hq,hifi}/   all gzip compressed
+```
+
+## Next phase
+
 - **Phase 3:** Minigraph-Cactus graph (`module load cactus/3.2.0` provides
   `cactus-pangenome`, `vg` 1.74.0, `minigraph` 0.21), vg Giraffe mapping, and
   GraffiTE as the comparison baseline.
+
+## Toolkit goal
+
+The generic parts of this pipeline — orthologous anchor selection via
+liftover, sharing-pattern enumeration, multi-genome TE insertion, and SV
+placement — are intended to migrate into `simulate_data` as a reusable
+pangenome-simulation module. Species-specific choices (rice, Chr1, riceTElib)
+are kept in `config/pangenome_panel.toml` rather than in code, so that move
+stays cheap.

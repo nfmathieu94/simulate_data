@@ -2,6 +2,7 @@
 
 import collections
 import importlib.util
+import random
 import sys
 import tempfile
 import unittest
@@ -248,3 +249,68 @@ class TestInsertion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSampleComposition(unittest.TestCase):
+    """The sample must give ground truth for BOTH halves of the report."""
+
+    def setUp(self):
+        self.sample = _load("build_sample_genome", "06_build_sample_genome.py")
+
+    @staticmethod
+    def _panel_events(per_pattern=20):
+        events = []
+        patterns = ["{:04b}".format(i) for i in range(1, 16)]
+        for pattern in patterns:
+            for slot in range(per_pattern):
+                events.append(
+                    {
+                        "event_id": f"PG{pattern}{slot:03d}",
+                        "pattern": pattern,
+                        "genomes": "Nipponbare",
+                        "te_id": "Os0001#DNA/Foo",
+                        "te_family": "Os0001",
+                        "te_group": "MULE",
+                        "strand": "+",
+                        "tsd_length": "3",
+                        "inserted_length": "500",
+                        "anchor_id": f"anchor_{pattern}{slot:03d}",
+                        "Nipponbare_pos": "1000",
+                    }
+                )
+        return events
+
+    def test_split_is_stratified_across_every_pattern(self):
+        rng = random.Random(1)
+        carried, absent = self.sample.choose_reference_events(
+            self._panel_events(), 150, rng
+        )
+        self.assertEqual(len(carried), 150)
+        self.assertEqual(len(absent), 300 - 150)
+        carried_patterns = {e["pattern"] for e in carried}
+        absent_patterns = {e["pattern"] for e in absent}
+        # Every sharing pattern must contribute to BOTH sides, or attribution
+        # goes untested for whichever patterns vanish.
+        self.assertEqual(len(carried_patterns), 15)
+        self.assertEqual(len(absent_patterns), 15)
+
+    def test_split_is_disjoint_and_complete(self):
+        rng = random.Random(2)
+        events = self._panel_events()
+        carried, absent = self.sample.choose_reference_events(events, 150, rng)
+        ids_carried = {e["event_id"] for e in carried}
+        ids_absent = {e["event_id"] for e in absent}
+        self.assertEqual(ids_carried & ids_absent, set())
+        self.assertEqual(len(ids_carried | ids_absent), len(events))
+
+    def test_uneven_split_still_totals_correctly(self):
+        rng = random.Random(3)
+        carried, absent = self.sample.choose_reference_events(
+            self._panel_events(), 157, rng
+        )
+        self.assertEqual(len(carried), 157)
+        self.assertEqual(len(absent), 143)
+
+    def test_used_anchor_ids(self):
+        events = self._panel_events(per_pattern=2)
+        self.assertEqual(len(self.sample.used_anchor_ids(events)), 30)
