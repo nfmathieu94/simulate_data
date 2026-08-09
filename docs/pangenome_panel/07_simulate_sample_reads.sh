@@ -117,6 +117,14 @@ for fastq in "$READ_DIR"/*.fq "$READ_DIR"/*.fastq; do
 done
 # ART's per-read alignment files are large and not part of the contract.
 rm -f "$READ_DIR"/*.aln "$READ_DIR"/*.sam
+
+# PBSIM3 MAF records every subread pass, so for HiFi it dwarfs the reads
+# themselves (8.8 GB vs 1.2 GB at 30x). Nothing downstream consumes it here:
+# sample truth is known by construction from sample_truth.tsv. Set
+# KEEP_ALIGNMENTS=1 to retain MAF/ref for read-level provenance work.
+if [[ "${KEEP_ALIGNMENTS:-0}" != "1" ]]; then
+    rm -f "$READ_DIR"/*.maf.gz "$READ_DIR"/*.ref
+fi
 shopt -u nullglob
 
 if find "$READ_DIR" -type f \( -name '*.fastq' -o -name '*.fq' \) \

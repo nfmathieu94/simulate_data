@@ -114,6 +114,43 @@ Phase 1 therefore measures an optimistic bound, but a mildly optimistic one.
 Report it as an upper bound; the real-TE dataset proposed below is what
 brackets it from the realistic side.
 
+## Phase 2 results (sample + reads)
+
+`SampleA#1#Chr1`, derived from the Nipponbare background:
+43,270,923 -> 43,715,474 bp. Length delta 444,551 bp, exactly the sum of
+inserted TE plus TSD lengths.
+
+| Class | Count | Expected call |
+|---|---|---|
+| `reference` | 150 | `reference`, attributed to the carrying panel genomes |
+| `non_reference` | 100 | `non_reference` |
+| `absent` | 150 | no call (over-calling control) |
+
+Both `reference` and `absent` span all 15 sharing patterns.
+
+**Reads (30x requested, all gzip):**
+
+| Technology | Job elapsed | Reads | Delivered coverage |
+|---|---|---|---|
+| Illumina 150 bp PE | 12:02 | 4,370,384 pairs | 30.0x |
+| ONT-HQ | 8:38 | 111,052 | 30.0x |
+| PacBio HiFi | 6:10:11 | 79,459 | 27.2x |
+
+HiFi delivers 27.2x rather than 30x because **ccs yield is 93.0%**
+(79,459 of 85,441 ZMWs) — the same shortfall the long-read panel's yield
+accounting was built for, reproducing at full scale. HiFi also costs ~43x the
+ONT wall time (10 passes plus consensus polishing).
+
+### Known waste: HiFi MAF intermediate
+
+`pacbio_reads_0001.maf.gz` is **8.8 GB**, two thirds of the 13 GB sample read
+total, because PBSIM3 records every one of the 10 subread passes. Nothing in
+Phase 2 consumes it — sample truth is known by construction from
+`sample_truth.tsv`, not derived from alignments. `07_simulate_sample_reads.sh`
+should drop MAF/ref intermediates by default with a flag to retain them. The
+existing files were left in place rather than deleted, since regenerating them
+costs a 6-hour job.
+
 ## Failures / issues found
 
 1. **`short` partition caps at 2 h**, not 4. Download script adjusted.
@@ -133,6 +170,13 @@ brackets it from the realistic side.
 5. **The background-TE filter was dead code** on first write: it was tested
    but never called, because the TE family is not known until assignment. It
    now runs in the assignment loop.
+6. **Sample build crashed on `int('-')`.** A panel event whose pattern excludes
+   the reference (e.g. Azucena-only) has no reference position in
+   `truth_events.tsv`. The anchor still has a coordinate in every genome, so
+   `reference_position_for` now sources it from the anchor map. This is the
+   case where a TE is "reference" by virtue of a genome other than the
+   sample's own background — arguably the most interesting class in the
+   benchmark, and it would have been silently dropped.
 
 ## Decisions / logic
 
