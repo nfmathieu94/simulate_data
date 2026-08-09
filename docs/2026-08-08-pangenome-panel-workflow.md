@@ -151,6 +151,57 @@ should drop MAF/ref intermediates by default with a flag to retain them. The
 existing files were left in place rather than deleted, since regenerating them
 costs a 6-hour job.
 
+## Phase 3 results (graph + Giraffe)
+
+**Minigraph-Cactus graph** over the four augmented genomes, 31m38s on 32 cores:
+
+```
+nodes    1,650,830
+edges    2,233,650
+length   55,394,265 bp     (vs 43.5 Mb reference: ~12 Mb non-reference sequence)
+```
+
+Outputs: GFA (clip + full), GBZ, HAL, snarls, VCF, and short-read Giraffe
+indexes. mash distances computed during construction independently confirm the
+divergence ordering: Azucena 0.0038, N22 0.0101, IR64 0.0127.
+
+### Graph recovery of the known sharing patterns
+
+`graph_validation.tsv`, comparing Cactus VCF genotypes against truth:
+
+| Pattern cardinality | Detected |
+|---|---|
+| 1 genome | 74/80 |
+| 2 genomes | 117/120 |
+| 3 genomes | 70/80 |
+| **4 genomes (core)** | **0/20** |
+
+**The 0/20 is correct behavior, not a failure.** A TE present in all four
+genomes is monomorphic: it sits on the reference path and in every sample, so
+there is no bubble and nothing to genotype. Verified directly -- the TE
+sequence is present in 4/4 augmented genomes, and there are zero VCF records
+within +/-200 bp of those loci.
+
+Excluding core, **detection is 261/280 = 93.2%**, and attribution (per-genome
+genotypes matching the sharing pattern) is **236/261 = 90.4%**.
+
+**Design consequence for RelocaTE3:** a reference TE present in *every*
+supplied genome cannot be found through pangenome graph variants at all. It
+has to come from annotation or alignment against the genomes. Any multi-FASTA
+or graph implementation needs a non-graph path for the core case, or it will
+silently miss the most conserved elements.
+
+### vg Giraffe mapping of the sample reads
+
+| Technology | Preset | Elapsed | Reads | Aligned | Mean MAPQ |
+|---|---|---|---|---|---|
+| Illumina PE | default | 3:28 | 8,740,768 | **99.74%** | 56.6 |
+| ONT-HQ | r10 | 9:06 | 111,052 | **93.07%** | 58.9 |
+| PacBio HiFi | hifi | 2:24 | 79,459 | **100.00%** | 58.2 |
+
+99.66% of Illumina pairs are properly paired. These rates are consistent with
+the >98% Giraffe figure the GigaScience crop evaluation reports.
+
 ## Failures / issues found
 
 1. **`short` partition caps at 2 h**, not 4. Download script adjusted.
@@ -170,7 +221,17 @@ costs a 6-hour job.
 5. **The background-TE filter was dead code** on first write: it was tested
    but never called, because the TE family is not known until assignment. It
    now runs in the assignment loop.
-6. **Sample build crashed on `int('-')`.** A panel event whose pattern excludes
+6. **`vg giraffe --parameter-preset lr` does not exist** in vg 1.74. The valid
+   presets are `chaining-sr / default / fast / hifi / r10 / srold`, so ONT maps
+   to `r10` and PacBio to `hifi` -- technology-specific rather than a generic
+   long-read setting.
+7. **cactus-pangenome emits only a SHORT-READ minimizer index**
+   (`*.shortread.withzip.min`). Long reads need their own index; vg also
+   refuses to load one that is older than the distance index it depends on
+   (`.dist is newer than .min which depends on it`). Added
+   `08b_build_longread_index.sh` (`vg minimizer -k 29 -w 11`), which takes 15
+   seconds and fixes both problems.
+8. **Sample build crashed on `int('-')`.** A panel event whose pattern excludes
    the reference (e.g. Azucena-only) has no reference position in
    `truth_events.tsv`. The anchor still has a coordinate in every genome, so
    `reference_position_for` now sources it from the anchor map. This is the

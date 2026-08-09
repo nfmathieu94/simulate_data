@@ -68,9 +68,21 @@ mkdir -p "$MAP_DIR"
 
 GBZ="$GRAPH_DIR/${GRAPH_NAME}.gbz"
 DIST="$GRAPH_DIR/${GRAPH_NAME}.dist"
-# cactus-pangenome --giraffe emits a short-read minimizer index plus zipcodes.
-MIN="$(ls "$GRAPH_DIR"/${GRAPH_NAME}*.min 2>/dev/null | head -1 || true)"
-ZIP="$(ls "$GRAPH_DIR"/${GRAPH_NAME}*.zipcodes 2>/dev/null | head -1 || true)"
+# Short and long reads need different minimizer indexes: cactus-pangenome
+# emits only the short-read one, so 08b builds the long-read index.
+if [[ "$TECH" == "illumina" ]]; then
+    MIN="$GRAPH_DIR/${GRAPH_NAME}.shortread.withzip.min"
+    ZIP="$GRAPH_DIR/${GRAPH_NAME}.shortread.zipcodes"
+else
+    MIN="$GRAPH_DIR/${GRAPH_NAME}.longread.min"
+    ZIP="$GRAPH_DIR/${GRAPH_NAME}.longread.zipcodes"
+    [[ -s "$MIN" ]] || {
+        echo "ERROR: long-read minimizer index missing: $MIN" >&2
+        echo "  run 08b_build_longread_index.sh first" >&2
+        exit 1
+    }
+fi
+[[ -s "$ZIP" ]] || ZIP=""
 
 for required in "$GBZ" "$DIST"; do
     [[ -s "$required" ]] || {
@@ -117,9 +129,16 @@ case "$TECH" in
             exit 1
         }
         echo "READS=$READS"
-        # Long reads need the long-read preset; short-read defaults produce
-        # poor alignments for multi-kb reads.
-        vg giraffe "${GIRAFFE_ARGS[@]}" --parameter-preset lr -f "$READS" > "$GAM"
+        # vg 1.74 presets are technology-specific, not a generic "lr":
+        #   chaining-sr / default / fast / hifi / r10 / srold
+        # ONT high-accuracy maps to r10; PacBio HiFi to hifi.
+        case "$TECH" in
+            ont-hq) PRESET="r10" ;;
+            hifi)   PRESET="hifi" ;;
+        esac
+        echo "PRESET=$PRESET"
+        vg giraffe "${GIRAFFE_ARGS[@]}" --parameter-preset "$PRESET" \
+            -f "$READS" > "$GAM"
         ;;
 esac
 
