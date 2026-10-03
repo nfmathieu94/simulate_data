@@ -2,6 +2,14 @@
 
 Date: 2026-07-09 America/Los_Angeles
 
+## Current outcome (verified 2026-09-02)
+
+This is a historical preparation checklist, not an active to-do list. The
+simulation modules, somatic mPing panels, riceTElib short-read panel, divergence
+panel, and multi-genome/pangenome panel were implemented. The riceTElib
+long-read panel is 15 of 18 tasks complete; only the three HiFi 30x tasks remain
+incomplete after reaching their 48-hour limit.
+
 ## Purpose
 
 Prepare reproducible simulated datasets for developing and benchmarking a TE
@@ -279,7 +287,8 @@ modules in the SLURM scripts.
 
 ## TEvarSim Workaround Path
 
-Use this only if direct insertion simulation is not implemented yet.
+This was the fallback proposed before direct insertion simulation was
+implemented. It is retained only as historical troubleshooting context.
 
 ### 1. Convert mPing-like GFF3 records into a TEvarSim-compatible `.out`
 

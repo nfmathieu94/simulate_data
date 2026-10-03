@@ -2,6 +2,8 @@
 
 Date: 2026-07-10 America/Los_Angeles
 
+Last verified: 2026-09-02 21:21 PDT (America/Los_Angeles)
+
 ## Purpose and status
 
 The `te-benchmark-panel` module creates mixed germline and subclonal somatic TE
@@ -10,6 +12,10 @@ fraction of cells, so insertion VAF is half the configured cellular fraction.
 
 The module uses separate `catalog` and `reads` stages. This permits one catalog
 to be shared safely by SLURM coverage/replicate array jobs.
+
+The module is implemented and tested. In the linked operational rice workspace,
+both the full and Chr1-only somatic mPing panels have complete catalogs, nine
+mixed samples, nine matched controls, and gzip-compressed FASTQs.
 
 ## Default biological model
 

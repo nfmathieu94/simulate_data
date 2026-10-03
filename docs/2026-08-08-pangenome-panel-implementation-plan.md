@@ -1,6 +1,10 @@
 # Pangenome TE Benchmark Panel — Phase 1 Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+**Current outcome (verified 2026-09-02):** This historical Phase 1 plan was
+implemented. Phases 2 and 3 were also completed later; see
+`docs/2026-08-08-pangenome-panel-workflow.md` for realized results. The steps
+below describe the original implementation sequence and are not an active
+to-do list.
 
 **Goal:** Produce four TE-augmented rice Chr1 genomes (Nipponbare, Azucena, IR64, N22) carrying 300 synthetic riceTElib insertions distributed across all 15 non-empty sharing patterns, with a truth table recording which genome(s) carry each event.
 
@@ -498,7 +502,7 @@ awk -F'\t' 'NR>1 && $6!="-"' results/pangenome_panel/sharing_matrix.tsv | wc -l
 ls -la results/pangenome_panel/genomes/augmented/
 ```
 
-**Do not build a pangenome graph, simulate reads, or run RelocaTE3.** Phase 1
-ends when the four augmented genomes and the truth table exist, per the
-agreed scope. Report the anchor acceptance rate and the per-genome insertion
-counts, then stop.
+**Historical Phase 1 stop condition:** the original task ended after the four
+augmented genomes and truth table. Later tasks built the sample, reads, graph,
+long-read index, and Giraffe alignments; RelocaTE3 integration remains future
+work.

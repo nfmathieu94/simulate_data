@@ -1,6 +1,10 @@
 # Long-read TE Benchmark Panel Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+**Current outcome (verified 2026-09-02):** This historical plan was implemented.
+The statements below describing broken modules or missing tools record the
+pre-implementation state. The operational riceTElib panel is 15 of 18 tasks
+complete; all three HiFi 30x tasks reached their 48-hour limit and still need a
+safe rerun.
 
 **Goal:** Generate simulated ONT high-accuracy and PacBio HiFi read panels over the existing riceTElib truth set, so long-read support can be added to RelocaTE3 and scored against the same 500 insertion events as the short-read benchmark.
 
@@ -17,7 +21,9 @@
 Two repos are involved. Use absolute paths; they are on different filesystems.
 
 - **TOOLKIT** = `/bigdata/stajichlab/nmath020/github/github_tools/data_sim/simulate_data`
-  (git repo, branch `feat/longread-te-benchmark-panel`)
+  (git repo; implementation originally landed on
+  `feat/longread-te-benchmark-panel`, now contained in
+  `feat/pangenome-panel-design`)
 - **PANEL** = `/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new`
   (NOT a git repo — no commits there)
 
@@ -37,7 +43,8 @@ Read these before writing code. Each was verified by execution on 2026-08-07, no
    with `ERROR: Cannot open file: QSHMM-ONT`. It needs
    `$CONDA_PREFIX/data/QSHMM-ONT.model`. The seven shipped models are
    `QSHMM-{ONT,ONT-HQ,RSII}.model` and `ERRHMM-{ONT,ONT-HQ,RSII,SEQUEL}.model`.
-   **This is why `reads_ont.py` and `reads_pacbio.py` do not currently work.**
+   **This was why `reads_ont.py` and `reads_pacbio.py` did not work before this
+   plan was implemented.**
 
 2. **PBSIM3 writes one output set per contig**, numbered from 1:
    `<prefix>_0001.fq.gz`, `<prefix>_0001.maf.gz`, `<prefix>_0001.ref`.
@@ -718,9 +725,8 @@ git commit -m "feat(longread): wrap ccs with yield accounting and a floor"
 - Modify: `$TOOLKIT/src/simulate_data/modules/reads_ont.py`
 - Test: `$TOOLKIT/tests/test_reads_ont.py`
 
-This module is currently broken — it passes a bare model name. Read the existing
-tests first; they encode the old (wrong) behavior and must be updated, not
-deleted wholesale.
+At the start of this plan, this module was broken because it passed a bare
+model name. The implementation and tests were subsequently corrected.
 
 **Step 1: Read the existing tests**
 
@@ -1101,8 +1107,7 @@ cd $PANEL && pixi run --manifest-path $TOOLKIT/pyproject.toml \
 ```
 Expected: catalog complete, 9 genomes found, both models resolve, ccs present.
 
-**Step 4: Report, do not submit**
+**Historical Step 4: Report, do not submit**
 
-Print the exact `submit.sh` command for the user to run. Per
-@superpowers:verification-before-completion, do not claim the panel is
-generated — only that it is ready to submit.
+This was the original stop condition. The panel was later submitted; 15 tasks
+completed and three HiFi 30x tasks timed out.

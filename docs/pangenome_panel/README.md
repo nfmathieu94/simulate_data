@@ -2,6 +2,8 @@
 
 Date/time: 2026-08-08 America/Los_Angeles
 
+Last verified: 2026-09-02 21:21 PDT (America/Los_Angeles)
+
 ## Purpose
 
 Ground truth for two upcoming RelocaTE3 capabilities:
@@ -12,8 +14,10 @@ Ground truth for two upcoming RelocaTE3 capabilities:
 2. **Pangenome graph support**, later, against a graph built from the same
    genomes.
 
-Phase 1 builds the TE-augmented reference genomes; Phase 2 builds the sample
-and its reads. No pangenome graph is built yet.
+Phases 1-3 are complete in the linked operational workspace. The workflow
+built the TE-augmented reference genomes, SampleA and its three read types, the
+Minigraph-Cactus graph, a long-read minimizer index, and Giraffe alignments for
+Illumina, ONT-HQ, and HiFi reads.
 
 ## Design
 
@@ -199,11 +203,11 @@ sample/SampleA/
 └── reads/{illumina,ont-hq,hifi}/   all gzip compressed
 ```
 
-## Next phase
+## Next work
 
-- **Phase 3:** Minigraph-Cactus graph (`module load cactus/3.2.0` provides
-  `cactus-pangenome`, `vg` 1.74.0, `minigraph` 0.21), vg Giraffe mapping, and
-  GraffiTE as the comparison baseline.
+Connect RelocaTE3 and the maintained standalone `relocate-benchmark` runner to
+the completed panel. The graph, long-read index, and all three Giraffe
+alignments already exist and should be treated as inputs, not future stages.
 
 ## Toolkit goal
 

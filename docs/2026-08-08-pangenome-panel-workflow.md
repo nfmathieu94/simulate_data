@@ -1,17 +1,21 @@
-# Pangenome TE panel — Phase 1 workflow record
+# Pangenome TE panel workflow record
 
 **Date:** 2026-08-08 America/Los_Angeles
+
+**Last verified:** 2026-09-02 21:21 PDT (America/Los_Angeles)
 
 ## Purpose
 
 Build four TE-augmented rice Chr1 genomes as ground truth for RelocaTE3
 multi-FASTA support, and later pangenome-graph support.
 
-## Current status: Phase 1 COMPLETE
+## Current status: Phases 1-3 complete
 
-300 events across all 15 sharing patterns; 160 insertions per genome. All
-verification checks pass. **No reads simulated and no graph built**, per the
-agreed scope.
+Phase 1 produced 300 events across all 15 sharing patterns and 160 insertions
+per genome. Phase 2 produced SampleA and its Illumina, ONT-HQ, and HiFi reads.
+Phase 3 produced the Minigraph-Cactus graph, a separate long-read minimizer
+index, and completed Giraffe alignments for all three read technologies. The
+corresponding completion sentinels are present.
 
 | Stage | Job | Elapsed |
 |---|---|---|
@@ -274,26 +278,22 @@ pixi run --manifest-path /rhome/nmath020/bigdata/github/github_tools/data_sim/si
 
 ## Next steps
 
-1. **Phase 2:** 5th Nipponbare-derived sample genome carrying a mix of
-   panel-matching insertions (→ reference, with known attribution) and novel
-   insertions (→ non-reference), deliberately omitting some panel TEs to test
-   over-calling; then read simulation reusing the existing panel machinery.
-2. **Wire RelocaTE3 multi-FASTA support** and score against
+1. **Wire RelocaTE3 multi-FASTA and long-read support** and score against
    `truth_events.tsv` / `sharing_matrix.tsv`.
-3. **Phase 3:** Minigraph-Cactus graph (`module load cactus/3.2.0`), vg
-   Giraffe mapping, GraffiTE as comparison baseline.
-4. Consider scaling beyond Chr1 once the approach is validated; 2779 accepted
+2. Add the completed panel and its alignments to the standalone
+   `relocate-benchmark` dataset interface.
+3. Consider scaling beyond Chr1 once the approach is validated; 2779 accepted
    anchors on Chr1 alone suggests headroom for a much larger event count. Note
    the exhaustive sharing design does not scale in genome count: patterns go as
    2^n - 1, so 8 genomes would need 255 patterns and 16 would need 65,535.
    Beyond 4 genomes, switch to sampled or phylogeny-structured patterns.
-5. **Real-TE complement.** Hold out a real MAGIC16 genome, derive truth from
+4. **Real-TE complement.** Hold out a real MAGIC16 genome, derive truth from
    assembly-to-assembly comparison (minimap2 + SVIM-asm + RepeatMasker, i.e.
    GraffiTE's assembly mode, which its own benchmarking found most reliable),
    and simulate reads from it. Real positions, nesting, truncation and family
    spectrum; high-confidence rather than exact truth. Brackets the synthetic
    panel from the realistic side.
-6. **Toolkit goal.** The generic parts of this pipeline -- orthologous anchor
+5. **Toolkit goal.** The generic parts of this pipeline -- orthologous anchor
    selection, sharing-pattern enumeration, multi-genome TE insertion, SV
    placement -- are to migrate into `simulate_data` as a reusable pangenome
    simulation module, so this is not a rice-only script.

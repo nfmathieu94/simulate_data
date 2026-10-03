@@ -2,6 +2,12 @@
 
 **Date:** 2026-08-08 America/Los_Angeles
 
+**Current outcome (verified 2026-09-02):** This is the historical design
+record. Phases 1-3 were completed in the linked operational workspace: the
+four-genome panel, SampleA truth and Illumina/ONT-HQ/HiFi reads,
+Minigraph-Cactus graph, long-read index, and all three Giraffe alignments have
+completion sentinels.
+
 ## Purpose
 
 Create simulated ground-truth data for two upcoming RelocaTE3 capabilities:
@@ -13,8 +19,9 @@ Create simulated ground-truth data for two upcoming RelocaTE3 capabilities:
 2. **Pangenome graph support (later).** The same question answered against a
    graph built from those genomes.
 
-This document covers the data. Phase 1 stops once the TE-augmented genomes
-exist, per the agreed scope.
+This document originally scoped Phase 1 to the TE-augmented genomes. Later
+work completed the sample/read and graph/alignment phases as recorded in
+`docs/2026-08-08-pangenome-panel-workflow.md`.
 
 ## Decisions
 
@@ -204,14 +211,15 @@ like an attribution bug.
 
 ## Phases
 
-- **Phase 1 (this plan).** Directories, download, Chr1 + PanSN, orthology map,
-  background annotation, TE insertion → 4 augmented genomes + truth. **Stop.**
-- **Phase 2.** 5th Nipponbare-derived sample genome carrying a mix of
+- **Phase 1 — complete.** Directories, download, Chr1 + PanSN, orthology map,
+  background annotation, TE insertion → 4 augmented genomes + truth.
+- **Phase 2 — complete.** 5th Nipponbare-derived sample genome carrying a mix of
   panel-matching insertions (→ reference, with known attribution) and novel
   insertions (→ non-reference), plus short/long read simulation reusing the
   existing panel machinery. Also deliberately *omits* some panel TEs, to test
   over-calling.
-- **Phase 3.** Minigraph-Cactus graph, vg Giraffe mapping, GraffiTE as the
+- **Phase 3 — complete.** Minigraph-Cactus graph and vg Giraffe mapping, with
+  GraffiTE retained as the
   comparison baseline.
 
 ## Risks
@@ -230,4 +238,6 @@ like an attribution bug.
 
 ## Next steps
 
-Implementation plan: `docs/2026-08-08-pangenome-panel-implementation-plan.md`.
+The original implementation plan is
+`docs/2026-08-08-pangenome-panel-implementation-plan.md`. The next work is to
+connect RelocaTE3 and the standalone benchmark runner to the completed panel.

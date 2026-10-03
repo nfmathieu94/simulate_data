@@ -2,6 +2,14 @@
 
 Date/time: 2026-08-07 America/Los_Angeles
 
+## Current outcome (verified 2026-09-02)
+
+This design was implemented in `simulate_data` and submitted from the linked
+operational rice workspace. Fifteen of 18 long-read tasks are complete. The
+three HiFi 30x main outputs are partial and their controls are empty because
+the jobs reached the 48-hour limit; none of those six directories has a
+completion sentinel.
+
 ## Purpose
 
 Generate simulated **long-read** (ONT high-accuracy and PacBio HiFi) benchmark
@@ -29,8 +37,9 @@ datagen / benchmark boundary; `relocate-benchmark` consumes it later by path.
 Established by direct execution, not assumption:
 
 - `pbsim3` is already pinned in the `simulate_data` pixi env.
-- **`reads_ont.py` and `reads_pacbio.py` are broken and have never been run.**
-  They pass a bare model name; PBSIM3 requires a path:
+- **Before this design was implemented, `reads_ont.py` and `reads_pacbio.py`
+  were broken and had never run.** They passed a bare model name; PBSIM3
+  requires a path:
   `ERROR: Cannot open file: QSHMM-ONT`. Works with
   `--qshmm $CONDA_PREFIX/data/QSHMM-ONT.model`.
 - Seven models ship in `$CONDA_PREFIX/data/`: `QSHMM-{ONT,ONT-HQ,RSII}.model`,
@@ -40,8 +49,8 @@ Established by direct execution, not assumption:
   existing `_count_origin_support()` pysam path does not apply.
 - `--difference-ratio` default `6:55:39` is PacBio RS II. PBSIM3 documents
   `39:24:36` for ONT and `22:45:33` for Sequel.
-- HiFi requires `ccs`, absent from the env. `pbccs 6.4.0` exists on bioconda
-  linux-64.
+- HiFi required `ccs`, which was absent from the environment at the time.
+  `pbccs 6.4.0` was then added from Bioconda.
 - **The full HiFi chain was tested end-to-end and works**: pbsim3
   `--pass-num 10` subread BAM (correct `@RG PL:PACBIO READTYPE=SUBREAD`,
   `movie/zmw/idx` naming) -> `ccs` -> HiFi FASTQ. 37 reads from 40 ZMWs,
@@ -170,4 +179,7 @@ Mirrors `test_build_multite_panel.py`:
 
 ## Next steps
 
-Implementation plan follows this document.
+Safely archive and rerun the three incomplete HiFi 30x tasks, validate realism
+and delivered coverage, then register the complete dataset in the standalone
+benchmark runner. The RelocaTE3 implementation plan is
+`plans/2026-09-02-relocate3-long-read-support.md`.
