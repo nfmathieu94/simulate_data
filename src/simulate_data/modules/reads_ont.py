@@ -7,6 +7,7 @@ using quality score hidden Markov models (QSHMM).
 import logging
 from pathlib import Path
 
+from simulate_data.longread import resolve_model_path
 from simulate_data.utils import (
     check_tool_installed,
     ensure_output_dir,
@@ -15,6 +16,10 @@ from simulate_data.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# PBSIM3's documented ONT value. Its built-in default of 6:55:39 is PacBio
+# RS II and produces the wrong error profile for ONT reads.
+ONT_DIFFERENCE_RATIO = "39:24:36"
 
 
 def register_parser(parser):
@@ -63,6 +68,15 @@ def register_parser(parser):
         default=None,
         help="PBSIM3 quality score model",
     )
+    parser.add_argument(
+        "--difference-ratio",
+        default=ONT_DIFFERENCE_RATIO,
+        help=(
+            "substitution:insertion:deletion ratio "
+            f"(default: {ONT_DIFFERENCE_RATIO}, PBSIM3's recommended value for "
+            "ONT; the tool's own default of 6:55:39 describes PacBio RS II)"
+        ),
+    )
 
 
 def _build_pbsim3_ont_command(
@@ -74,8 +88,13 @@ def _build_pbsim3_ont_command(
     seed: int | None = None,
     error_model: str = "QSHMM-ONT",
     qscore_model: str | None = None,
+    difference_ratio: str = ONT_DIFFERENCE_RATIO,
 ) -> list[str]:
-    """Build the PBSIM3 (pbsim) command for ONT read simulation."""
+    """Build the PBSIM3 (pbsim) command for ONT read simulation.
+
+    ``error_model`` may be a model name or a path; PBSIM3 itself requires a
+    path to a .model file and fails with 'Cannot open file' on a bare name.
+    """
     cmd = [
         "pbsim",
         "--strategy",
@@ -83,7 +102,9 @@ def _build_pbsim3_ont_command(
         "--method",
         "qshmm",
         "--qshmm",
-        error_model,
+        str(resolve_model_path(error_model)),
+        "--difference-ratio",
+        difference_ratio,
         "--depth",
         str(coverage),
         "--length-mean",
@@ -137,6 +158,7 @@ def main(args):
         seed=args.seed,
         error_model=args.error_model,
         qscore_model=args.qscore_model,
+        difference_ratio=args.difference_ratio,
     )
 
     logger.info("Simulating ONT reads with PBSIM3")

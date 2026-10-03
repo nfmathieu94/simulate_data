@@ -2,6 +2,7 @@
 
 import argparse
 import io
+from collections import defaultdict
 from pathlib import Path
 
 import pysam
@@ -169,3 +170,64 @@ def test_art_command_requests_profile_and_sam():
     )
     assert command[command.index("-ss") + 1] == "HSXn"
     assert "-sam" in command
+
+
+class TestLongReadSupportCounting:
+    """MAF spans must drive the same present/absent tally the SAM path did."""
+
+    @staticmethod
+    def _rows_and_truth():
+        rows = [
+            {
+                "chrom": "Chr1",
+                "coordinate": 1000,
+                "event_id": "TE000001",
+                "present": 1,
+                "haplotype": 1,
+            }
+        ]
+        truth = {"TE000001": {"inserted_length": "500", "tsd_length": "5"}}
+        return rows, truth
+
+    def test_spanning_read_supports_the_insertion(self):
+        rows, truth = self._rows_and_truth()
+        counts = defaultdict(lambda: [0, 0])
+        # A read covering 0-20000 spans both junctions of the insertion.
+        panel._count_origin_support_maf([("Chr1", 0, 20000)], rows, truth, counts)
+        assert counts["TE000001"] == [1, 0]
+
+    def test_absent_event_counts_as_reference_spanning(self):
+        rows, truth = self._rows_and_truth()
+        rows[0]["present"] = 0
+        counts = defaultdict(lambda: [0, 0])
+        panel._count_origin_support_maf([("Chr1", 0, 20000)], rows, truth, counts)
+        assert counts["TE000001"] == [0, 1]
+
+    def test_read_on_another_contig_is_ignored(self):
+        rows, truth = self._rows_and_truth()
+        counts = defaultdict(lambda: [0, 0])
+        panel._count_origin_support_maf([("Chr9", 0, 20000)], rows, truth, counts)
+        assert counts["TE000001"] == [0, 0]
+
+    def test_read_ending_before_the_site_is_ignored(self):
+        rows, truth = self._rows_and_truth()
+        counts = defaultdict(lambda: [0, 0])
+        panel._count_origin_support_maf([("Chr1", 0, 500)], rows, truth, counts)
+        assert counts["TE000001"] == [0, 0]
+
+    def test_each_event_counted_once_per_read(self):
+        """A long read crossing both junctions must not double-count."""
+        rows, truth = self._rows_and_truth()
+        counts = defaultdict(lambda: [0, 0])
+        panel._count_origin_support_maf([("Chr1", 0, 100000)], rows, truth, counts)
+        assert counts["TE000001"] == [1, 0]
+
+
+def test_long_read_seed_derivation_matches_short_read():
+    """Seeds must stay comparable across technologies."""
+    assert panel._seed(916, 30.0, 1, 0, 1) == panel._seed(916, 30.0, 1, 0, 1)
+    assert panel._seed(916, 30.0, 1, 0, 1) != panel._seed(916, 30.0, 1, 0, 2)
+
+
+def test_long_read_platforms_are_registered():
+    assert set(panel.LONG_READ_PLATFORMS) == {"ont-hq", "hifi"}

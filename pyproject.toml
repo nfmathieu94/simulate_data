@@ -39,6 +39,8 @@ black = ">=24.0"
 samtools = ">=1.21"
 art = ">=2016.6.5,<2017"
 pbsim3 = ">=3.0.5,<4"
+# Collapses PBSIM3 multi-pass subread BAMs into PacBio HiFi reads.
+pbccs = ">=6.4.0,<7"
 survivor = ">=1.0.7,<2"
 
 [tool.pixi.pypi-dependencies]
@@ -49,6 +51,9 @@ tevarsim = "*"
 test = { cmd = "pytest tests/ -v" }
 lint = { cmd = "ruff check src/ tests/" }
 format = { cmd = "black src/ tests/" }
+
+[tool.pytest.ini_options]
+markers = ["slow: exercises real external tools (pbsim/ccs)"]
 
 [tool.ruff]
 line-length = 88

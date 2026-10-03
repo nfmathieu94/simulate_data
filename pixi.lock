@@ -12,6 +12,7 @@ environments:
       linux-64:
       - conda: https://conda.anaconda.org/bioconda/linux-64/art-2016.06.05-h0704011_13.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.23.1-h633afcb_0.conda
+      - conda: https://conda.anaconda.org/bioconda/linux-64/pbccs-6.4.0-h9ee0642_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/pbsim3-3.0.5-h9948957_2.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/pysam-0.24.0-py312hf5ad864_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.23.1-ha83d96e_0.conda
@@ -108,6 +109,13 @@ packages:
   license_family: MIT
   size: 1195461
   timestamp: 1773854995668
+- conda: https://conda.anaconda.org/bioconda/linux-64/pbccs-6.4.0-h9ee0642_0.tar.bz2
+  sha256: 8a291fc4313e575aa5e6a8eab5699abfbf61f8b97757aa662e54a35700199934
+  md5: cc6fd59a5aedeefc5e6cd8af7594559b
+  license: BSD-3-Clause-Clear
+  purls: []
+  size: 3700091
+  timestamp: 1650354317627
 - conda: https://conda.anaconda.org/bioconda/linux-64/pbsim3-3.0.5-h9948957_2.conda
   sha256: 5886ba67864b593317cbca28aa2462ec438ff8ee2efe0fdc6a0485cdefa3779e
   md5: 31a2feb9049df19a760c1f8f0cf58437

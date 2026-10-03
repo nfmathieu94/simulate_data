@@ -2,6 +2,8 @@
 
 Date: 2026-07-10 America/Los_Angeles
 
+Last verified: 2026-09-02 21:21 PDT (America/Los_Angeles)
+
 ## Purpose
 
 Expose TEvarSim target-site duplication length controls through the
@@ -18,7 +20,7 @@ appropriate short TSDs by default.
 
 ## Commands
 
-Planned verification:
+Current verification commands:
 
 ```bash
 pixi run pytest tests/test_te_insertion.py -v

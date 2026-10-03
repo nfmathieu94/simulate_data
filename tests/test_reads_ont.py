@@ -33,6 +33,7 @@ class TestRegisterParser:
         assert args.error_model == "QSHMM-ONT"
         assert args.qscore_model is None
         assert args.seed is None
+        assert args.difference_ratio == "39:24:36"
 
     def test_register_parser_custom_values(self):
         parser = argparse.ArgumentParser()
@@ -90,6 +91,7 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
 
         reads_ont.main(ns)
@@ -116,6 +118,7 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
 
         reads_ont.main(ns)
@@ -137,6 +140,7 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model="custom_qscore_model",
+            difference_ratio="39:24:36",
         )
 
         reads_ont.main(ns)
@@ -155,6 +159,7 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
         with pytest.raises(ValueError, match="coverage must be positive"):
             reads_ont.main(ns)
@@ -169,6 +174,7 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
         with pytest.raises(ValueError, match="read-length must be positive"):
             reads_ont.main(ns)
@@ -183,6 +189,7 @@ class TestMain:
             read_std=-1,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
         with pytest.raises(ValueError, match="read-std must be non-negative"):
             reads_ont.main(ns)
@@ -197,6 +204,41 @@ class TestMain:
             read_std=7000,
             error_model="QSHMM-ONT",
             qscore_model=None,
+            difference_ratio="39:24:36",
         )
         with pytest.raises(FileNotFoundError):
             reads_ont.main(ns)
+
+
+class TestModelResolution:
+    """PBSIM3 rejects a bare model name; the module must resolve a path."""
+
+    def test_command_uses_resolved_model_path(self, tmp_path, monkeypatch):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "QSHMM-ONT.model").write_text("x")
+        monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+
+        cmd = reads_ont._build_pbsim3_ont_command(
+            ref_fasta=tmp_path / "ref.fa",
+            coverage=5.0,
+            output_prefix=str(tmp_path / "out"),
+            error_model="QSHMM-ONT",
+        )
+
+        assert cmd[cmd.index("--qshmm") + 1] == str(data / "QSHMM-ONT.model")
+        assert "QSHMM-ONT" not in cmd, "bare model name must not be passed"
+
+    def test_command_uses_ont_difference_ratio(self, tmp_path, monkeypatch):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "QSHMM-ONT.model").write_text("x")
+        monkeypatch.setenv("CONDA_PREFIX", str(tmp_path))
+
+        cmd = reads_ont._build_pbsim3_ont_command(
+            ref_fasta=tmp_path / "ref.fa",
+            coverage=5.0,
+            output_prefix=str(tmp_path / "out"),
+        )
+
+        assert cmd[cmd.index("--difference-ratio") + 1] == "39:24:36"

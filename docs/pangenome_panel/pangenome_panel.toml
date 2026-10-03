@@ -1,0 +1,78 @@
+# Multi-genome TE panel for RelocaTE3 multi-FASTA and pangenome support.
+# Phase 1 builds TE-augmented genomes; reads come in Phase 2.
+
+[inputs]
+te_library = "input/TE_lib/other_TEs/riceTElib/rice7.0.0.liban"
+# TE group definitions (names, TSD rules, classifications) are reused from the
+# short-read panel so results stay comparable across benchmarks.
+te_group_config = "config/riceTElib_benchmark.toml"
+
+[panel]
+chrom = "Chr1"
+events_per_pattern = 20        # x 15 sharing patterns = 300 events
+seed = 917                     # distinct from the riceTElib panels (916)
+
+# IRGSP-1.0 is downloaded rather than reusing the local MSU_r7.fa: they are
+# different Nipponbare assemblies, and mixing one MSU genome with three
+# MAGIC16 genomes would confound assembly differences with real divergence.
+[[genomes]]
+name = "Nipponbare"
+accession = "GCA_001433935.1"
+directory = "GCA_001433935.1_IRGSP-1.0"
+group = "GJ-tmp"
+chromosome = "1"
+reference = true               # anchor coordinate system
+
+[[genomes]]
+name = "Azucena"
+accession = "GCA_009830595.1"
+directory = "GCA_009830595.1_AzucenaRS1"
+group = "GJ-trop1"
+chromosome = "1"
+
+[[genomes]]
+name = "IR64"
+accession = "GCA_009914875.1"
+directory = "GCA_009914875.1_OsIR64RS1"
+group = "XI-1B1"
+chromosome = "1"
+
+[[genomes]]
+name = "N22"
+accession = "GCA_001952365.3"
+directory = "GCA_001952365.3_OsN22RS2"
+group = "cA1"
+chromosome = "1"
+
+[orthology]
+minimap2_preset = "asm5"
+min_alignment_length = 50000   # paftools.js liftover -l
+min_mapping_quality = 5        # paftools.js liftover -q
+
+[selection]
+min_distance = 5000            # between synthetic insertions
+flank_acgt = 200               # unambiguous bases required around a site
+min_te_length = 80
+max_te_length = 20000
+sense_strand_ratio = 0.5
+# Reject a site within this distance of a pre-existing TE of the same family
+# in ANY genome, so a correct call is not scored as a false positive.
+background_te_buffer = 1000
+
+[download]
+base_url = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA"
+
+# Phase 2: the sample whose reads a caller actually sees. Derived from the
+# reference background so its coordinates stay interpretable.
+[sample]
+name = "SampleA"
+# Panel events the sample also carries -> expected call "reference", with the
+# carrying panel genomes as the attribution answer key.
+n_reference = 150
+# Novel insertions at anchors the panel never used, so the locus is empty in
+# every panel genome -> expected call "non_reference".
+n_non_reference = 100
+# The remaining 150 panel events are deliberately absent from the sample and
+# must produce no call at all; without them, a caller that reports every panel
+# event would score perfectly.
+seed = 1017

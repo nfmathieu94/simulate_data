@@ -2,9 +2,17 @@
 
 A modular library for simulating genomic data for testing and benchmarking bioinformatic tools.
 
+Current status (verified 2026-09-02): all documented simulation subcommands are
+implemented, including ONT-HQ and real PacBio HiFi generation through PBSIM3
+and CCS. The linked operational rice workspace has complete short-read panels
+and a riceTElib long-read panel with 15 of 18 tasks complete; the three HiFi
+30x tasks still need to be repaired and rerun. See
+`docs/2026-09-02-current-status.md` for the cross-project snapshot.
+
 ## Table of Contents
 
 - [Introduction](#introduction)
+- [Current Project Status](docs/2026-09-02-current-status.md)
 - [Installation](#installation)
 - [Available Subcommands](#available-subcommands)
 - [Usage Examples](#usage-examples)

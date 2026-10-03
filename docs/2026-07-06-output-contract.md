@@ -2,6 +2,8 @@
 
 Date: 2026-07-06 15:56 America/Los_Angeles
 
+Last verified: 2026-09-02 21:21 PDT (America/Los_Angeles)
+
 ## Purpose
 
 Make TE/SV genome-modification outputs predictable for downstream short-read
@@ -17,7 +19,7 @@ and long-read simulation workflows.
 
 ## Commands
 
-Planned verification from repository root:
+Current verification from repository root:
 
 ```bash
 pixi run format
@@ -31,8 +33,9 @@ Downstream read simulators and combined TE/SV workflows should not need to know
 tool-specific filenames such as `Sim_Chr1.fa` or
 `sv_output_modified_genome.fa`.
 
-## Next Steps
+## Current outcome
 
-- Verify against mocked unit tests.
-- Smoke-test with real external tools when TEvarSim, SURVIVOR, ART, and PBSIM3
-  are available on the target HPC environment.
+The stable output names are covered by the test suite. TEvarSim, SURVIVOR,
+ART, PBSIM3, and CCS are installed in the Pixi environment, and the linked
+operational workspace contains outputs generated with these tools. No output
+contract work remains open here.
